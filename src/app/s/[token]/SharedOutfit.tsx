@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { withUrls } from "@/lib/data";
-import { SKIN_TONES, wear, type AvatarSettings, type Item, type Worn } from "@/lib/types";
+import { avatarWithDefaults, wear, type AvatarSettings, type Item, type Worn } from "@/lib/types";
 import { AvatarView } from "@/components/AvatarView";
 
 type Shared = { name: string; avatar: AvatarSettings; worn: Worn };
@@ -42,7 +42,7 @@ export function SharedOutfit() {
         <Link href="/" className="text-sm font-semibold text-accent">Outfit Checker</Link>
       </header>
       <div className="flex-1">
-        {outfit && <AvatarView worn={outfit.worn} skin={outfit.avatar.skin ?? SKIN_TONES[1]} />}
+        {outfit && <AvatarView worn={outfit.worn} avatar={avatarWithDefaults(outfit.avatar)} />}
       </div>
     </main>
   );

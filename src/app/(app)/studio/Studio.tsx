@@ -4,7 +4,19 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { CATEGORIES, SKIN_TONES, allTags, wear, type Category, type Worn } from "@/lib/types";
+import {
+  CATEGORIES,
+  DEFAULT_AVATAR,
+  HAIR_COLORS,
+  HAIR_STYLES,
+  SKIN_TONES,
+  allTags,
+  avatarWithDefaults,
+  wear,
+  type AvatarSettings,
+  type Category,
+  type Worn,
+} from "@/lib/types";
 import { TagFilter } from "@/components/Tags";
 import { AvatarView } from "@/components/AvatarView";
 import { useItems } from "@/components/useItems";
@@ -17,9 +29,9 @@ export function Studio() {
   const { items } = useItems();
 
   const [worn, setWorn] = useState<Worn>({});
-  const [skin, setSkin] = useState(SKIN_TONES[1]);
+  const [avatar, setAvatar] = useState<Required<AvatarSettings>>(DEFAULT_AVATAR);
   const [name, setName] = useState("");
-  const [tab, setTab] = useState<Category>("tops");
+  const [tab, setTab] = useState<Category | "hair">("tops");
   const [tag, setTag] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -39,7 +51,7 @@ export function Studio() {
         const ids = new Set((data.outfit_items as { item_id: string }[]).map((o) => o.item_id));
         setWorn(items.filter((i) => ids.has(i.id)).reduce(wear, {} as Worn));
         setName(data.name);
-        if (data.avatar?.skin) setSkin(data.avatar.skin);
+        setAvatar(avatarWithDefaults(data.avatar));
       } else if (wearId) {
         const item = items.find((i) => i.id === wearId);
         if (item) {
@@ -66,7 +78,7 @@ export function Studio() {
     setNotice(null);
     const supabase = createClient();
     try {
-      const row = { name: name.trim() || "Untitled outfit", avatar: { skin }, updated_at: new Date().toISOString() };
+      const row = { name: name.trim() || "Untitled outfit", avatar, updated_at: new Date().toISOString() };
       let id = outfitId;
       if (id) {
         const { error } = await supabase.from("outfits").update(row).eq("id", id);
@@ -94,14 +106,14 @@ export function Studio() {
   return (
     <div className="space-y-4">
       <div className="relative -mx-4 h-[52dvh] min-h-80 overflow-hidden bg-canvas sm:mx-0 sm:rounded-3xl">
-        <AvatarView worn={worn} skin={skin} />
+        <AvatarView worn={worn} avatar={avatar} />
         <div className="absolute left-3 top-3 flex gap-1.5 rounded-full bg-white/80 p-1.5 backdrop-blur">
           {SKIN_TONES.map((t) => (
             <button
               key={t}
               aria-label="Skin tone"
-              onClick={() => setSkin(t)}
-              className={`h-6 w-6 rounded-full border-2 ${skin === t ? "border-ink" : "border-white"}`}
+              onClick={() => setAvatar((a) => ({ ...a, skin: t }))}
+              className={`h-6 w-6 rounded-full border-2 ${avatar.skin === t ? "border-ink" : "border-white"}`}
               style={{ background: t }}
             />
           ))}
@@ -115,6 +127,14 @@ export function Studio() {
       </div>
 
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4">
+        <button
+          onClick={() => setTab("hair")}
+          className={`shrink-0 rounded-full border px-3.5 py-1.5 text-sm ${
+            tab === "hair" ? "border-ink bg-ink text-white" : "border-line bg-white"
+          }`}
+        >
+          💇 Hair
+        </button>
         {CATEGORIES.map((c) => (
           <button
             key={c.id}
@@ -129,34 +149,66 @@ export function Studio() {
         ))}
       </div>
 
-      <TagFilter tags={tags} value={tag} onChange={setTag} />
-
-      {items === null ? (
-        <p className="text-sm text-muted">Loading wardrobe…</p>
-      ) : inTab.length === 0 ? (
-        <p className="rounded-2xl bg-white p-4 text-sm text-muted">
-          No {CATEGORIES.find((c) => c.id === tab)?.label.toLowerCase()} {tag ? `tagged #${tag}` : "yet"}.{" "}
-          <Link href="/wardrobe/new" className="font-semibold text-accent">
-            Add one
-          </Link>
-        </p>
-      ) : (
-        <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1">
-          {inTab.map((item) => {
-            const on = worn[item.category]?.id === item.id;
-            return (
+      {tab === "hair" ? (
+        <div className="space-y-3">
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+            {HAIR_COLORS.map((c) => (
               <button
-                key={item.id}
-                onClick={() => setWorn((w) => wear(w, item))}
-                className={`checker h-24 w-24 shrink-0 rounded-2xl border-2 p-1.5 ${on ? "border-accent" : "border-line"}`}
-                title={item.name}
+                key={c.id}
+                aria-label={`${c.label} hair`}
+                title={c.label}
+                onClick={() => setAvatar((a) => ({ ...a, hairColor: c.id }))}
+                className={`h-8 w-8 shrink-0 rounded-full border-2 ${avatar.hairColor === c.id ? "border-ink" : "border-white shadow"}`}
+                style={{ background: c.id }}
+              />
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {HAIR_STYLES.map((h) => (
+              <button
+                key={h.id}
+                onClick={() => setAvatar((a) => ({ ...a, hair: h.id }))}
+                className={`rounded-2xl border-2 bg-white p-1.5 text-xs ${avatar.hair === h.id ? "border-accent" : "border-line"}`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- signed storage URL */}
-                <img src={item.url} alt={item.name} className="h-full w-full object-contain" />
+                {/* eslint-disable-next-line @next/next/no-img-element -- small static preview */}
+                <img src={`/hair/${h.id}.png`} alt="" className="mx-auto aspect-square w-full rounded-xl bg-canvas object-cover" />
+                <span className="mt-1 block truncate">{h.label}</span>
               </button>
-            );
-          })}
+            ))}
+          </div>
         </div>
+      ) : (
+        <>
+          <TagFilter tags={tags} value={tag} onChange={setTag} />
+
+          {items === null ? (
+            <p className="text-sm text-muted">Loading wardrobe…</p>
+          ) : inTab.length === 0 ? (
+            <p className="rounded-2xl bg-white p-4 text-sm text-muted">
+              No {CATEGORIES.find((c) => c.id === tab)?.label.toLowerCase()} {tag ? `tagged #${tag}` : "yet"}.{" "}
+              <Link href="/wardrobe/new" className="font-semibold text-accent">
+                Add one
+              </Link>
+            </p>
+          ) : (
+            <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1">
+              {inTab.map((item) => {
+                const on = worn[item.category]?.id === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setWorn((w) => wear(w, item))}
+                    className={`checker h-24 w-24 shrink-0 rounded-2xl border-2 p-1.5 ${on ? "border-accent" : "border-line"}`}
+                    title={item.name}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- signed storage URL */}
+                    <img src={item.url} alt={item.name} className="h-full w-full object-contain" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
       <div className="flex gap-2">

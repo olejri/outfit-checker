@@ -51,7 +51,53 @@ export function itemViews(item: Pick<Item, "category" | "image_path" | "views">)
   return views;
 }
 
-export type AvatarSettings = { skin?: string };
+export const HAIR_STYLES = [
+  { id: "none", label: "Bald" },
+  { id: "buzz", label: "Buzz cut" },
+  { id: "crew", label: "Crew cut" },
+  { id: "sidepart", label: "Side part" },
+  { id: "quiff", label: "Quiff" },
+  { id: "curls", label: "Short curls" },
+  { id: "mohawk", label: "Mohawk" },
+  { id: "pixie", label: "Pixie" },
+  { id: "bob", label: "Bob" },
+  { id: "lob", label: "Shoulder length" },
+  { id: "long", label: "Long" },
+  { id: "afro", label: "Afro" },
+  { id: "ponytail", label: "Ponytail" },
+  { id: "bun", label: "Bun" },
+  { id: "topknot", label: "Top knot" },
+  { id: "spacebuns", label: "Space buns" },
+  { id: "braids", label: "Braids" },
+] as const;
+export type HairStyle = (typeof HAIR_STYLES)[number]["id"];
+
+export const HAIR_COLORS = [
+  { id: "#2b231e", label: "Black" },
+  { id: "#55392a", label: "Dark brown" },
+  { id: "#86603f", label: "Brown" },
+  { id: "#a24a25", label: "Auburn" },
+  { id: "#cc8443", label: "Copper" },
+  { id: "#ddbb7c", label: "Blonde" },
+  { id: "#f0e7d3", label: "Platinum" },
+  { id: "#a9a49d", label: "Grey" },
+  { id: "#e58fac", label: "Pink" },
+  { id: "#5676bd", label: "Blue" },
+];
+
+export type AvatarSettings = { skin?: string; hair?: HairStyle; hairColor?: string };
+
+export const DEFAULT_AVATAR: Required<AvatarSettings> = {
+  skin: "#e8b896",
+  hair: "crew",
+  hairColor: HAIR_COLORS[1].id,
+};
+
+/** Fills in anything an older saved outfit doesn't have. */
+export function avatarWithDefaults(avatar: AvatarSettings | null | undefined): Required<AvatarSettings> {
+  const hair = HAIR_STYLES.some((h) => h.id === avatar?.hair) ? avatar!.hair! : DEFAULT_AVATAR.hair;
+  return { skin: avatar?.skin ?? DEFAULT_AVATAR.skin, hair, hairColor: avatar?.hairColor ?? DEFAULT_AVATAR.hairColor };
+}
 
 export type Outfit = {
   id: string;
