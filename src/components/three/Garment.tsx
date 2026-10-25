@@ -2,13 +2,34 @@
 
 import { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
-import { VIEWS, type Category, type ItemWithUrl, type View } from "@/lib/types";
-import { BODY, place, projectViews, shoulder, sleeve, torsoShell, type ProjectionBox } from "./geometry";
+import { drawFitted, loadImage } from "@/lib/fit";
+import {
+  VIEWS,
+  shapeWithDefaults,
+  type Category,
+  type ItemFit,
+  type ItemWithUrl,
+  type ShapeKey,
+  type View,
+} from "@/lib/types";
+import { BODY, place, projectViews, shoulder, sleeve, torsoShell, type ProjectionBox, type Range } from "./geometry";
+
+type Shape = Record<ShapeKey, number>;
 
 type Template = {
-  parts: () => THREE.BufferGeometry[];
-  box: ProjectionBox;
+  parts: (shape: Shape) => THREE.BufferGeometry[];
+  /** The area (in metres) each side's photo is stretched across. */
+  box: (shape: Shape) => ProjectionBox;
+  /** Height of the collar, where a neckline is cut from. */
+  neck?: number;
 };
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** 1 at the middle of a slider, `min` and `max` at its ends. */
+const around1 = (t: number, min: number, max: number) => (t < 0.5 ? lerp(min, 1, t * 2) : lerp(1, max, (t - 0.5) * 2));
+const looseness = (s: Shape) => around1(s.looseness, 0.96, 1.25);
+const size = (s: Shape, min = 0.85) => around1(s.looseness, min, 1.25);
+const MAX_SLEEVE = 0.56;
 
 const legs = (bottom: number, r: number) =>
   ([1, -1] as const).map((s) =>
@@ -17,137 +38,215 @@ const legs = (bottom: number, r: number) =>
     }),
   );
 
-/**
- * One template mesh per category, sized to sit just outside the mannequin.
- * `box` is the area (in metres) each side's photo is stretched across.
- */
-const TEMPLATES: Record<Category, Template> = {
-  tops: {
-    parts: () => [
-      torsoShell(1.47, 0.94, 0.205, 0.172),
-      shoulder(1, 0.068),
-      shoulder(-1, 0.068),
-      sleeve(1, 0.062, 0.22),
-      sleeve(-1, 0.062, 0.22),
-    ],
-    box: { x: [-0.3, 0.3], y: [0.94, 1.49] },
-  },
-  outerwear: {
-    parts: () => [
-      torsoShell(1.48, 0.8, 0.222, 0.2),
-      shoulder(1, 0.078),
-      shoulder(-1, 0.078),
-      sleeve(1, 0.072, 0.56),
-      sleeve(-1, 0.072, 0.56),
-    ],
-    box: { x: [-0.34, 0.34], y: [0.8, 1.5] },
-  },
-  dresses: {
-    parts: () => [
-      torsoShell(1.47, 1.0, 0.203, 0.168),
-      torsoShell(1.0, 0.45, 0.17, 0.32, false),
-    ],
-    box: { x: [-0.32, 0.32], y: [0.45, 1.49] },
-  },
-  bottoms: {
-    parts: () => [torsoShell(1.04, 0.86, 0.165, 0.172), ...legs(0.1, 0.079)],
-    box: { x: [-0.18, 0.18], y: [0.1, 1.04] },
-  },
-  shoes: {
-    parts: () =>
-      ([1, -1] as const).map((s) =>
-        place(new THREE.BoxGeometry(0.11, 0.1, 0.27, 2, 2, 4), { pos: [s * BODY.legX, 0.05, 0.05] }),
-      ),
-    box: { x: [-0.06, 0.06], y: [0, 0.1], z: [-0.09, 0.19], perPart: true },
-  },
-  hats: {
-    parts: () => [
-      place(new THREE.SphereGeometry(0.118, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), { pos: [0, 1.7, 0] }),
-      place(new THREE.CylinderGeometry(0.17, 0.17, 0.01, 48), { pos: [0, 1.7, 0.02] }),
-    ],
-    box: { x: [-0.17, 0.17], y: [1.69, 1.82] },
-  },
-  accessories: {
-    parts: () => [place(new THREE.BoxGeometry(0.22, 0.2, 0.07), { pos: [0.34, 0.9, 0.02] })],
-    box: { x: [0.23, 0.45], y: [0.8, 1.0] },
-  },
+/** Shoulders and sleeves, or nothing for a sleeveless garment. */
+const arms = (shoulderR: number, sleeveR: number, sleeveShare: number) => {
+  const length = sleeveShare * MAX_SLEEVE;
+  if (length < 0.02) return [];
+  return [shoulder(1, shoulderR), shoulder(-1, shoulderR), sleeve(1, sleeveR, length), sleeve(-1, sleeveR, length)];
 };
 
 /**
- * Paints each photo over the garment's dominant colour, so transparent areas of the
- * cut-out (around sleeves, between legs) show cloth instead of holes.
+ * One template per category, sized to sit just outside the mannequin and shaped by
+ * the item's fit. At the default shape (DEFAULT_SHAPE) each matches the original
+ * fixed template.
  */
-function useViewTextures(urls: Partial<Record<View, string>>, color: string) {
-  const [textures, setTextures] = useState<Partial<Record<View, THREE.CanvasTexture>> | null>(null);
+const TEMPLATES: Record<Category, Template> = {
+  tops: {
+    parts: (s) => {
+      const k = looseness(s);
+      return [torsoShell(1.47, lerp(1.14, 0.74, s.length), 0.205 * k, 0.172 * k), ...arms(0.068 * k, 0.062 * k, s.sleeve)];
+    },
+    box: (s) => ({ x: [-0.3 * looseness(s), 0.3 * looseness(s)], y: [lerp(1.14, 0.74, s.length), 1.49] }),
+    neck: 1.47,
+  },
+  outerwear: {
+    parts: (s) => {
+      const k = looseness(s);
+      return [torsoShell(1.48, lerp(1.1, 0.5, s.length), 0.222 * k, 0.2 * k), ...arms(0.078 * k, 0.072 * k, s.sleeve)];
+    },
+    box: (s) => ({ x: [-0.34 * looseness(s), 0.34 * looseness(s)], y: [lerp(1.1, 0.5, s.length), 1.5] }),
+    neck: 1.48,
+  },
+  dresses: {
+    parts: (s) => {
+      const k = looseness(s);
+      const hem = lerp(0.85, 0.05, s.length);
+      return [
+        torsoShell(1.47, 1.0, 0.203 * k, 0.168 * k),
+        torsoShell(1.0, hem, 0.17 * k, skirtFlare(s), false),
+        ...arms(0.068 * k, 0.062 * k, s.sleeve),
+      ];
+    },
+    box: (s) => {
+      const half = Math.max(0.32 * looseness(s), skirtFlare(s));
+      return { x: [-half, half], y: [lerp(0.85, 0.05, s.length), 1.49] };
+    },
+    neck: 1.47,
+  },
+  bottoms: {
+    parts: (s) => {
+      const k = looseness(s);
+      return [torsoShell(1.04, 0.86, 0.165 * k, 0.172 * k), ...legs(lerp(0.66, 0.02, s.length), 0.079 * k)];
+    },
+    box: (s) => ({ x: [-0.18 * looseness(s), 0.18 * looseness(s)], y: [lerp(0.66, 0.02, s.length), 1.04] }),
+  },
+  shoes: {
+    parts: (s) => {
+      const k = size(s);
+      return ([1, -1] as const).map((side) =>
+        place(new THREE.BoxGeometry(0.11 * k, 0.1 * k, 0.27 * k, 2, 2, 4), { pos: [side * BODY.legX, 0.05 * k, 0.05] }),
+      );
+    },
+    box: (s) => {
+      const k = size(s);
+      return { x: [-0.06 * k, 0.06 * k], y: [0, 0.1 * k], z: [0.05 - 0.14 * k, 0.05 + 0.14 * k], perPart: true };
+    },
+  },
+  hats: {
+    parts: (s) => {
+      const k = size(s, 0.9);
+      return [
+        place(new THREE.SphereGeometry(0.118 * k, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), { pos: [0, 1.7, 0] }),
+        place(new THREE.CylinderGeometry(0.17 * k, 0.17 * k, 0.01, 48), { pos: [0, 1.7, 0.02] }),
+      ];
+    },
+    box: (s) => {
+      const k = size(s, 0.9);
+      return { x: [-0.17 * k, 0.17 * k], y: [1.69, 1.7 + 0.12 * k] };
+    },
+  },
+  accessories: {
+    parts: (s) => {
+      const k = size(s, 0.6);
+      return [place(new THREE.BoxGeometry(0.22 * k, 0.2 * k, 0.07 * k), { pos: [0.34, 0.9, 0.02] })];
+    },
+    box: (s) => {
+      const k = size(s, 0.6);
+      return { x: [0.34 - 0.11 * k, 0.34 + 0.11 * k], y: [0.9 - 0.1 * k, 0.9 + 0.1 * k] };
+    },
+  },
+};
+
+/** A dress skirt flares more the longer it is. */
+function skirtFlare(s: Shape) {
+  const hem = lerp(0.85, 0.05, s.length);
+  return (0.17 + (0.15 * (1 - hem)) / 0.55) * looseness(s);
+}
+
+/**
+ * Builds an item's garment meshes for a shape, with each side's photo projected on.
+ * Also returns the photo area (with its depth filled in) and the overall bounds, for
+ * framing the camera; pass `keep = false` when only those measurements are needed.
+ */
+export function buildGarment(category: Category, shape: Shape, keep = true) {
+  const template = TEMPLATES[category];
+  const box = template.box(shape);
+  const geometries = projectViews(template.parts(shape), box);
+  const bounds = new THREE.Box3();
+  for (const g of geometries) bounds.union(g.boundingBox!);
+  const z: Range = box.z ?? [bounds.min.z, bounds.max.z];
+  // Measuring only: free the meshes straight away.
+  if (!keep) geometries.forEach((g) => g.dispose());
+  return { geometries, box: { ...box, z }, bounds };
+}
+
+/** Loads each side's photo once; fitting them is redone on the canvas without reloading. */
+function useViewImages(urls: Partial<Record<View, string>>) {
+  const [images, setImages] = useState<Partial<Record<View, HTMLImageElement>> | null>(null);
   const key = VIEWS.map((v) => urls[v] ?? "").join("|");
 
   useEffect(() => {
     let cancelled = false;
-    const made: THREE.CanvasTexture[] = [];
-    const load = (url: string) =>
-      new Promise<THREE.CanvasTexture | null>((resolve) => {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
-          canvas.width = Math.max(1, Math.round(img.width * scale));
-          canvas.height = Math.max(1, Math.round(img.height * scale));
-          const ctx = canvas.getContext("2d")!;
-          ctx.fillStyle = color;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.colorSpace = THREE.SRGBColorSpace;
-          texture.anisotropy = 4;
-          made.push(texture);
-          resolve(texture);
-        };
-        img.onerror = () => resolve(null);
-        img.src = url;
-      });
-
     const urlList = key.split("|");
-    Promise.all(VIEWS.map((v, i) => (urlList[i] ? load(urlList[i]) : null))).then((loaded) => {
+    Promise.all(VIEWS.map((v, i) => (urlList[i] ? loadImage(urlList[i]) : null))).then((loaded) => {
       if (cancelled) return;
-      const next: Partial<Record<View, THREE.CanvasTexture>> = {};
+      const next: Partial<Record<View, HTMLImageElement>> = {};
       VIEWS.forEach((v, i) => { if (loaded[i]) next[v] = loaded[i]!; });
-      setTextures(Object.keys(next).length ? next : null);
+      setImages(Object.keys(next).length ? next : null);
     });
     return () => {
       cancelled = true;
-      made.forEach((t) => t.dispose());
     };
-  }, [key, color]);
+  }, [key]);
+
+  return images;
+}
+
+/**
+ * One texture per side. Each photo is painted over the garment's dominant colour, so
+ * transparent areas of the cut-out (around sleeves, between legs) show cloth instead
+ * of holes, and redrawn in place whenever its crop, rotation or placement changes.
+ */
+function useViewTextures(urls: Partial<Record<View, string>>, color: string, photos: ItemFit["photos"]) {
+  const images = useViewImages(urls);
+
+  const textures = useMemo(() => {
+    if (!images) return null;
+    const made: Partial<Record<View, THREE.CanvasTexture>> = {};
+    for (const [view, img] of Object.entries(images) as [View, HTMLImageElement][]) {
+      const canvas = document.createElement("canvas");
+      // The canvas size never changes, so the GPU texture can be updated in place.
+      const scale = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 4;
+      made[view] = texture;
+    }
+    return made;
+  }, [images]);
+  useEffect(() => () => Object.values(textures ?? {}).forEach((t) => t.dispose()), [textures]);
+
+  const photosKey = JSON.stringify(photos ?? {});
+  useEffect(() => {
+    if (!images || !textures) return;
+    const fits = JSON.parse(photosKey) as NonNullable<ItemFit["photos"]>;
+    for (const [view, texture] of Object.entries(textures) as [View, THREE.CanvasTexture][]) {
+      drawFitted(texture.image as HTMLCanvasElement, images[view]!, fits[view], color);
+      texture.needsUpdate = true;
+    }
+  }, [images, textures, photosKey, color]);
 
   return textures;
 }
 
 const OPPOSITE: Record<View, View> = { front: "back", back: "front", left: "right", right: "left" };
 
+const BLANK = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+BLANK.needsUpdate = true;
+
+type NeckUniforms = { neckTop: { value: number }; neckDepth: { value: number }; neckWidth: { value: number } };
+
 /**
  * Blends the four photos by which way the surface faces, so the chest shows the front
  * photo, the shoulder blades the back one and the sleeves the side ones, with soft
  * seams in between. A missing side borrows the opposite photo, seen through the
  * garment (which is how single-photo items always looked); if both are missing, that
- * axis is left out and the other one covers it.
+ * axis is left out and the other one covers it. Without photos it is plain colour.
+ * A neckline is cut out of the front below `neckTop`.
  */
-function viewMaterial(textures: Partial<Record<View, THREE.CanvasTexture>>) {
-  const fallback = Object.values(textures)[0]!;
+function viewMaterial(textures: Partial<Record<View, THREE.CanvasTexture>> | null, color: string) {
+  const neck: NeckUniforms = { neckTop: { value: 0 }, neckDepth: { value: 0 }, neckWidth: { value: 1 } };
   const maps: THREE.Texture[] = [];
   const uvIndex: number[] = [];
   const enabled: number[] = [];
   VIEWS.forEach((view) => {
-    const source = textures[view] ? view : textures[OPPOSITE[view]] ? OPPOSITE[view] : null;
-    maps.push(source ? textures[source]! : fallback);
+    const source = textures?.[view] ? view : textures?.[OPPOSITE[view]] ? OPPOSITE[view] : null;
+    maps.push(source ? textures![source]! : BLANK);
     uvIndex.push(source ? VIEWS.indexOf(source) : 0);
     enabled.push(source ? 1 : 0);
   });
 
-  const material = new THREE.MeshStandardMaterial({ roughness: 0.85, side: THREE.DoubleSide });
+  const material = new THREE.MeshStandardMaterial({
+    color: textures ? "#ffffff" : color,
+    roughness: 0.85,
+    side: THREE.DoubleSide,
+  });
+  material.userData.neck = neck;
   material.customProgramCacheKey = () => "garment-views";
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, {
+    Object.assign(shader.uniforms, neck, {
       mapFront: { value: maps[0] },
       mapBack: { value: maps[1] },
       mapLeft: { value: maps[2] },
@@ -163,7 +262,8 @@ function viewMaterial(textures: Partial<Record<View, THREE.CanvasTexture>>) {
         attribute vec2 uvLeft;
         attribute vec2 uvRight;
         varying vec2 vUvViews[4];
-        varying vec3 vBodyNormal;`,
+        varying vec3 vBodyNormal;
+        varying vec3 vBodyPos;`,
       )
       .replace(
         "#include <uv_vertex>",
@@ -172,7 +272,8 @@ function viewMaterial(textures: Partial<Record<View, THREE.CanvasTexture>>) {
         vUvViews[1] = uvBack;
         vUvViews[2] = uvLeft;
         vUvViews[3] = uvRight;
-        vBodyNormal = normal;`,
+        vBodyNormal = normal;
+        vBodyPos = position;`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -184,41 +285,62 @@ function viewMaterial(textures: Partial<Record<View, THREE.CanvasTexture>>) {
         uniform sampler2D mapRight;
         uniform vec4 viewUv;
         uniform vec4 viewOn;
+        uniform float neckTop;
+        uniform float neckDepth;
+        uniform float neckWidth;
         varying vec2 vUvViews[4];
         varying vec3 vBodyNormal;
+        varying vec3 vBodyPos;
         vec2 viewCoord(float i) {
           return i < 0.5 ? vUvViews[0] : i < 1.5 ? vUvViews[1] : i < 2.5 ? vUvViews[2] : vUvViews[3];
         }`,
       )
       .replace(
         "#include <map_fragment>",
-        `vec3 bn = normalize(vBodyNormal);
-        // +z is the front, +x the wearer's left.
-        vec4 w = viewOn * exp(8.0 * vec4(bn.z, -bn.z, bn.x, -bn.x));
-        w /= max(dot(w, vec4(1.0)), 1e-5);
-        diffuseColor *=
-          texture2D(mapFront, viewCoord(viewUv.x)) * w.x +
-          texture2D(mapBack, viewCoord(viewUv.y)) * w.y +
-          texture2D(mapLeft, viewCoord(viewUv.z)) * w.z +
-          texture2D(mapRight, viewCoord(viewUv.w)) * w.w;`,
+        `if (neckDepth > 0.0 && vBodyPos.z > 0.0) {
+          float t = abs(vBodyPos.x) / neckWidth;
+          if (t < 1.0 && vBodyPos.y > neckTop - neckDepth * (1.0 - t * t)) discard;
+        }
+        if (dot(viewOn, vec4(1.0)) > 0.0) {
+          vec3 bn = normalize(vBodyNormal);
+          // +z is the front, +x the wearer's left.
+          vec4 w = viewOn * exp(8.0 * vec4(bn.z, -bn.z, bn.x, -bn.x));
+          w /= max(dot(w, vec4(1.0)), 1e-5);
+          diffuseColor *=
+            texture2D(mapFront, viewCoord(viewUv.x)) * w.x +
+            texture2D(mapBack, viewCoord(viewUv.y)) * w.y +
+            texture2D(mapLeft, viewCoord(viewUv.z)) * w.z +
+            texture2D(mapRight, viewCoord(viewUv.w)) * w.w;
+        }
+        // The inside of the garment, seen through a neckline, is a little darker.
+        if (!gl_FrontFacing) diffuseColor.rgb *= 0.75;`,
       );
   };
   return material;
 }
 
+/** Neckline from 0 (high, nothing cut) to 1 (deep scoop); garments without a collar have none. */
+function setNeckline(material: THREE.Material, top: number | undefined, depth: number) {
+  const neck = material.userData.neck as NeckUniforms;
+  neck.neckTop.value = top ?? 0;
+  neck.neckDepth.value = top ? 0.2 * depth : 0;
+  neck.neckWidth.value = 0.05 + 0.05 * depth;
+}
+
 export function Garment({ item }: { item: ItemWithUrl }) {
-  const template = TEMPLATES[item.category];
-  const geometries = useMemo(() => projectViews(template.parts(), template.box), [template]);
+  const shape = shapeWithDefaults(item.category, item.fit);
+  const shapeKey = JSON.stringify(shape);
+  const geometries = useMemo(
+    () => buildGarment(item.category, JSON.parse(shapeKey) as Shape).geometries,
+    [item.category, shapeKey],
+  );
   useEffect(() => () => geometries.forEach((g) => g.dispose()), [geometries]);
 
-  const textures = useViewTextures(item.viewUrls, item.color);
-  const material = useMemo(
-    () =>
-      textures
-        ? viewMaterial(textures)
-        : new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.85, side: THREE.DoubleSide }),
-    [textures, item.color],
-  );
+  const textures = useViewTextures(item.viewUrls, item.color, item.fit?.photos);
+  // Uniforms are shared with the compiled shader, so the neckline updates without a rebuild.
+  const material = useMemo(() => viewMaterial(textures, item.color), [textures, item.color]);
+  const neckTop = TEMPLATES[item.category].neck;
+  useEffect(() => setNeckline(material, neckTop, shape.neckline), [material, neckTop, shape.neckline]);
   useEffect(() => () => material.dispose(), [material]);
 
   return (

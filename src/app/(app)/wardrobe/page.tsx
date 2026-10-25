@@ -147,6 +147,9 @@ export default function WardrobePage() {
               <Link href={`/studio?wear=${selected.id}`} className="btn-primary flex-1">
                 Try it on
               </Link>
+              <Link href={`/wardrobe/${selected.id}/fit`} className="btn-ghost">
+                Adjust fit
+              </Link>
               <button className="btn-ghost text-red-700" onClick={() => remove(selected)}>
                 Delete
               </button>

@@ -11,7 +11,7 @@ export function itemPaths(item: Item) {
 /** Private bucket: turn storage paths into short-lived signed URLs. */
 export async function withUrls(supabase: SupabaseClient, items: Item[]): Promise<ItemWithUrl[]> {
   if (items.length === 0) return [];
-  const normalized = items.map((i) => ({ ...i, tags: i.tags ?? [], views: i.views ?? {} }));
+  const normalized = items.map((i) => ({ ...i, tags: i.tags ?? [], views: i.views ?? {}, fit: i.fit ?? {} }));
   const { data, error } = await supabase.storage
     .from(BUCKET)
     .createSignedUrls([...new Set(normalized.flatMap(itemPaths))], 60 * 60);
@@ -32,7 +32,7 @@ export async function withUrls(supabase: SupabaseClient, items: Item[]): Promise
 export async function loadItems(supabase: SupabaseClient): Promise<ItemWithUrl[]> {
   const { data, error } = await supabase
     .from("items")
-    .select("id, name, category, image_path, color, tags, views, created_at")
+    .select("id, name, category, image_path, color, tags, views, fit, created_at")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return withUrls(supabase, data as Item[]);

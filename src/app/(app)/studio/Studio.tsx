@@ -208,6 +208,13 @@ export function Studio() {
               })}
             </div>
           )}
+          {worn[tab] && (
+            <p className="text-sm">
+              <Link href={`/wardrobe/${worn[tab]!.id}/fit`} className="font-semibold text-accent">
+                Adjust how {worn[tab]!.name || "it"} fits →
+              </Link>
+            </p>
+          )}
         </>
       )}
 

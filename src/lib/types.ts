@@ -38,6 +38,8 @@ export type Item = {
   tags: string[];
   /** Storage paths of photos from each side; empty on items added before this existed. */
   views: Partial<Record<View, string>>;
+  /** How the photos sit on the 3D garment and its shape; empty means template defaults. */
+  fit: ItemFit;
   created_at?: string;
 };
 
@@ -49,6 +51,68 @@ export function itemViews(item: Pick<Item, "category" | "image_path" | "views">)
   const views = { ...item.views };
   if (Object.keys(views).length === 0) views[CAPTURE_STEPS[item.category][0]] = item.image_path;
   return views;
+}
+
+/**
+ * How one side's photo is prepared and placed. Rotation (degrees, clockwise) is
+ * applied first, then the crop, given as [x, y, width, height] fractions of the
+ * rotated photo. `offset` shifts the photo on the garment in fractions of the
+ * garment's width and height (+x right, +y up, as seen from that side), and `scale`
+ * grows it around its centre.
+ */
+export type PhotoFit = {
+  rotate?: number;
+  crop?: [number, number, number, number];
+  offset?: [number, number];
+  scale?: number;
+};
+
+/** Garment shape controls, each from 0 to 1. */
+export const SHAPE_KEYS = ["length", "looseness", "sleeve", "neckline"] as const;
+export type ShapeKey = (typeof SHAPE_KEYS)[number];
+
+/**
+ * Per-item fit, saved in items.fit. `source` says who set it, so an automatic fitter
+ * can later prefill it ("auto") without overwriting what a person adjusted ("manual").
+ */
+export type ItemFit = {
+  photos?: Partial<Record<View, PhotoFit>>;
+  shape?: Partial<Record<ShapeKey, number>>;
+  source?: "manual" | "auto";
+};
+
+type ShapeControl = { key: ShapeKey; label: string; low: string; high: string };
+
+const LENGTH = { key: "length", label: "Length", low: "Short", high: "Long" } as const;
+const LOOSE = { key: "looseness", label: "Fit", low: "Tight", high: "Loose" } as const;
+const SIZE = { key: "looseness", label: "Size", low: "Smaller", high: "Bigger" } as const;
+const SLEEVE = { key: "sleeve", label: "Sleeves", low: "None", high: "Long" } as const;
+const NECK = { key: "neckline", label: "Neckline", low: "High", high: "Deep" } as const;
+
+/** Which shape controls each category has. */
+export const SHAPE_CONTROLS: Record<Category, ShapeControl[]> = {
+  tops: [LENGTH, LOOSE, SLEEVE, NECK],
+  outerwear: [LENGTH, LOOSE, SLEEVE, NECK],
+  dresses: [LENGTH, LOOSE, SLEEVE, NECK],
+  bottoms: [LENGTH, LOOSE],
+  shoes: [SIZE],
+  hats: [SIZE],
+  accessories: [SIZE],
+};
+
+/** Shape values that reproduce each category's standard template. */
+export const DEFAULT_SHAPE: Record<Category, Record<ShapeKey, number>> = {
+  tops: { length: 0.5, looseness: 0.5, sleeve: 0.4, neckline: 0 },
+  outerwear: { length: 0.5, looseness: 0.5, sleeve: 1, neckline: 0 },
+  dresses: { length: 0.5, looseness: 0.5, sleeve: 0, neckline: 0 },
+  bottoms: { length: 0.875, looseness: 0.5, sleeve: 0, neckline: 0 },
+  shoes: { length: 0.5, looseness: 0.5, sleeve: 0, neckline: 0 },
+  hats: { length: 0.5, looseness: 0.5, sleeve: 0, neckline: 0 },
+  accessories: { length: 0.5, looseness: 0.5, sleeve: 0, neckline: 0 },
+};
+
+export function shapeWithDefaults(category: Category, fit: ItemFit | null | undefined) {
+  return { ...DEFAULT_SHAPE[category], ...fit?.shape };
 }
 
 export const HAIR_STYLES = [
