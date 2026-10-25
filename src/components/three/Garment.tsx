@@ -425,7 +425,8 @@ function setNeckline(material: THREE.Material, top: number | undefined, depth: n
   neck.neckWidth.value = 0.05 + 0.05 * depth;
 }
 
-export function Garment({ item }: { item: ItemWithUrl }) {
+/** `onReady` is called once the photos are on the garment (used for preview pictures). */
+export function Garment({ item, onReady }: { item: ItemWithUrl; onReady?: () => void }) {
   const shape = shapeWithDefaults(item.category, item.fit);
   const shapeKey = JSON.stringify(shape);
   const geometries = useMemo(
@@ -440,6 +441,9 @@ export function Garment({ item }: { item: ItemWithUrl }) {
   const neckTop = TEMPLATES[item.category].neck;
   useEffect(() => setNeckline(material, neckTop, shape.neckline), [material, neckTop, shape.neckline]);
   useEffect(() => () => material.dispose(), [material]);
+  useEffect(() => {
+    if (textures) onReady?.();
+  }, [textures, onReady]);
 
   return (
     <group>

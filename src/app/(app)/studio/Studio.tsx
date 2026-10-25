@@ -23,6 +23,8 @@ import { TagFilter } from "@/components/Tags";
 import { AvatarView } from "@/components/AvatarView";
 import { useItems } from "@/components/useItems";
 import { ItemPhoto } from "@/components/ItemPhoto";
+import { FolderPicker, useFolders } from "@/components/Folders";
+import { setOutfitFolders } from "@/lib/outfits";
 
 export function Studio() {
   const router = useRouter();
@@ -30,6 +32,12 @@ export function Studio() {
   const outfitId = params.get("outfit");
   const wearId = params.get("wear");
   const { items } = useItems();
+  const { folders, create: createFolder } = useFolders();
+  const [folderIds, setFolderIds] = useState<string[]>([]);
+  // Folders as last saved, to tell what changed.
+  const [savedFolderIds, setSavedFolderIds] = useState<string[]>([]);
+  // Items in the saved outfit that couldn't be loaded; kept so saving doesn't drop them.
+  const [unloaded, setUnloaded] = useState<string[]>([]);
 
   const [worn, setWorn] = useState<Worn>({});
   const [avatar, setAvatar] = useState<Required<AvatarSettings>>(DEFAULT_AVATAR);
@@ -48,12 +56,16 @@ export function Studio() {
       if (outfitId) {
         const { data } = await createClient()
           .from("outfits")
-          .select("name, avatar, outfit_items(item_id)")
+          .select("name, avatar, outfit_items(item_id), outfit_folder_items(folder_id)")
           .eq("id", outfitId)
           .single();
         if (cancelled || !data) return;
         const ids = new Set((data.outfit_items as { item_id: string }[]).map((o) => o.item_id));
         setWorn(items.filter((i) => ids.has(i.id)).reduce(wear, {} as Worn));
+        setUnloaded([...ids].filter((id) => !items.some((i) => i.id === id)));
+        const inFolders = (data.outfit_folder_items as { folder_id: string }[]).map((f) => f.folder_id);
+        setFolderIds(inFolders);
+        setSavedFolderIds(inFolders);
         setName(data.name);
         const saved = avatarWithDefaults(data.avatar);
         setAvatar(saved);
@@ -89,17 +101,25 @@ export function Studio() {
       if (id) {
         const { error } = await supabase.from("outfits").update(row).eq("id", id);
         if (error) throw error;
-        const del = await supabase.from("outfit_items").delete().eq("outfit_id", id);
-        if (del.error) throw del.error;
       } else {
         const { data, error } = await supabase.from("outfits").insert(row).select("id").single();
         if (error) throw error;
         id = data.id as string;
       }
+      // Add the new items before removing old ones, so a failure never empties the outfit.
+      const keep = [...wornList.map((i) => i!.id), ...unloaded];
       const { error } = await supabase
         .from("outfit_items")
-        .insert(wornList.map((i) => ({ outfit_id: id, item_id: i!.id })));
+        .upsert(keep.map((item_id) => ({ outfit_id: id, item_id })), { ignoreDuplicates: true });
       if (error) throw error;
+      const del = await supabase
+        .from("outfit_items")
+        .delete()
+        .eq("outfit_id", id)
+        .not("item_id", "in", `(${keep.join(",")})`);
+      if (del.error) throw del.error;
+      await setOutfitFolders(supabase, id!, outfitId ? savedFolderIds : [], folderIds);
+      setSavedFolderIds(folderIds);
       setNotice("Saved.");
       if (!outfitId) router.replace(`/studio?outfit=${id}`);
     } catch (e) {
@@ -254,6 +274,17 @@ export function Studio() {
           {saving ? "Saving…" : outfitId ? "Update" : "Save"}
         </button>
       </div>
+      {folders && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted">Save in folders (optional)</p>
+          <FolderPicker folders={folders} value={folderIds} onChange={setFolderIds} onCreate={createFolder} />
+        </div>
+      )}
+      {unloaded.length > 0 && (
+        <p className="text-xs text-muted">
+          {unloaded.length === 1 ? "1 item" : `${unloaded.length} items`} in this outfit couldn&apos;t be loaded. It stays in the outfit when you save.
+        </p>
+      )}
       {notice && (
         <p className="text-sm text-muted">
           {notice} {notice === "Saved." && <Link href="/outfits" className="font-semibold text-accent">See your outfits</Link>}

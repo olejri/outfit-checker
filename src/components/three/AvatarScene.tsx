@@ -1,14 +1,9 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { ContactShadows, OrbitControls } from "@react-three/drei";
-import { CATEGORIES, type AvatarSettings, type Worn } from "@/lib/types";
-import { Garment } from "./Garment";
-import { Hair } from "./Hair";
-import { Mannequin } from "./Mannequin";
-
-// Layering order matters only for readability; meshes are sized not to overlap.
-const ORDER = CATEGORIES.map((c) => c.id);
+import { OrbitControls } from "@react-three/drei";
+import type { AvatarSettings, Worn } from "@/lib/types";
+import { OutfitModel } from "./OutfitModel";
 
 export default function AvatarScene({ worn, avatar }: { worn: Worn; avatar: Required<AvatarSettings> }) {
   return (
@@ -22,21 +17,7 @@ export default function AvatarScene({ worn, avatar }: { worn: Worn; avatar: Requ
       }}
     >
       <color attach="background" args={["#f4f1ec"]} />
-      <hemisphereLight args={["#ffffff", "#d8cfc4", 1.1]} />
-      <directionalLight
-        position={[2, 4, 3]}
-        intensity={1.6}
-        castShadow
-        shadow-mapSize={[1024, 1024]}
-      />
-      <directionalLight position={[-3, 2, -2]} intensity={0.5} />
-      <Mannequin skin={avatar.skin} />
-      <Hair style={avatar.hair} beard={avatar.beard} color={avatar.hairColor} skin={avatar.skin} underHat={!!worn.hats} />
-      {ORDER.map((c) => {
-        const item = worn[c];
-        return item ? <Garment key={item.id} item={item} /> : null;
-      })}
-      <ContactShadows position={[0, 0, 0]} opacity={0.45} scale={3} blur={2.4} far={2} />
+      <OutfitModel worn={worn} avatar={avatar} />
       <OrbitControls
         target={[0, 0.95, 0]}
         enablePan={false}

@@ -214,8 +214,28 @@ export type Outfit = {
   share_token: string;
   avatar: AvatarSettings;
   created_at: string;
+  /** Preview picture on the model, in the storage bucket, and what it was made from. */
+  thumb_path: string | null;
+  thumb_key: string | null;
   outfit_items: { item_id: string }[];
+  outfit_folder_items: { folder_id: string }[];
 };
+
+/** A folder of outfits, like "Party". An outfit can be in several. */
+export type Folder = { id: string; name: string };
+
+export function normalizeFolderName(raw: string) {
+  return raw.trim().replace(/\s+/g, " ").slice(0, 40);
+}
+
+export function hairLabel(avatar: Required<AvatarSettings>) {
+  const hair = HAIR_STYLES.find((h) => h.id === avatar.hair)!.label;
+  const color = HAIR_COLORS.find((c) => c.id === avatar.hairColor)?.label;
+  const beard = avatar.beard === "none" ? null : BEARD_STYLES.find((b) => b.id === avatar.beard)!.label;
+  return [avatar.hair === "none" ? hair : [color, hair.toLowerCase()].filter(Boolean).join(" "), beard]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 /** One item per category is worn; dresses replace tops and bottoms. */
 export type Worn = Partial<Record<Category, ItemWithUrl>>;
