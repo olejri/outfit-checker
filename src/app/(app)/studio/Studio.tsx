@@ -26,6 +26,7 @@ import { ItemPhoto } from "@/components/ItemPhoto";
 import { FolderPicker, useFolders } from "@/components/Folders";
 import { setOutfitFolders } from "@/lib/outfits";
 import { useLeaveWarning } from "@/components/useLeaveWarning";
+import { LeaveSheet } from "@/components/LeaveSheet";
 
 /** Everything that is saved with an outfit, as one comparable string. */
 function snapshot(name: string, avatar: Required<AvatarSettings>, itemIds: string[], folderIds: string[]) {
@@ -126,14 +127,15 @@ export function Studio() {
   const current = snapshot(name, avatar, wornList.map((i) => i!.id), folderIds);
   const dirty = current !== baseline;
   const savedName = (JSON.parse(baseline) as [string])[0];
-  useLeaveWarning(dirty);
+  const leaving = useLeaveWarning(dirty);
 
   function startNew() {
-    if (dirty && !confirm("Start a new outfit? Your unsaved changes will be lost.")) return;
-    router.push("/studio?new=1");
+    if (dirty) leaving.ask("/studio?new=1");
+    else router.push("/studio?new=1");
   }
 
-  async function save(asNew = false) {
+  /** Saves, then goes to `then` if given (from the unsaved-changes sheet). */
+  async function save(asNew = false, then?: string) {
     if (wornList.length === 0) return;
     setSaving(true);
     setNotice(null);
@@ -169,12 +171,19 @@ export function Studio() {
       setName(outfitName);
       setBaseline(snapshot(outfitName, avatar, wornList.map((i) => i!.id), folderIds));
       setNotice(asNew ? `Saved as a new outfit, "${outfitName}".` : "Saved.");
-      if (isNew) router.replace(`/studio?outfit=${id}`, { scroll: false });
+      if (then) leaveTo(then);
+      else if (isNew) router.replace(`/studio?outfit=${id}`, { scroll: false });
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Saving failed.");
+      leaving.cancel(); // so the error under the name field can be seen
     } finally {
       setSaving(false);
     }
+  }
+
+  function leaveTo(href: string) {
+    leaving.cancel();
+    router.push(href);
   }
 
   return (
@@ -364,6 +373,24 @@ export function Studio() {
         <p className="text-sm text-muted">
           {notice} {notice.startsWith("Saved") && <Link href="/outfits" className="font-semibold text-accent">See your outfits</Link>}
         </p>
+      )}
+      {leaving.pending && (
+        <LeaveSheet
+          title={wornList.length === 0 ? "Leave this outfit?" : "Save your changes?"}
+          message={
+            wornList.length === 0
+              ? "The model has nothing on, so there is nothing to save. Your other changes will be lost."
+              : outfitId
+                ? `You've changed "${savedName || "this outfit"}" since it was last saved.`
+                : "This new outfit hasn't been saved yet."
+          }
+          saveLabel={outfitId ? "Update outfit" : "Save outfit"}
+          canSave={wornList.length > 0}
+          saving={saving}
+          onSave={() => save(false, leaving.pending!)}
+          onDiscard={() => leaveTo(leaving.pending!)}
+          onCancel={leaving.cancel}
+        />
       )}
     </div>
   );
