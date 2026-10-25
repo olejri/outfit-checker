@@ -31,7 +31,7 @@ export default function AvatarScene({ worn, avatar }: { worn: Worn; avatar: Requ
       />
       <directionalLight position={[-3, 2, -2]} intensity={0.5} />
       <Mannequin skin={avatar.skin} />
-      <Hair style={avatar.hair} color={avatar.hairColor} underHat={!!worn.hats} />
+      <Hair style={avatar.hair} beard={avatar.beard} color={avatar.hairColor} skin={avatar.skin} underHat={!!worn.hats} />
       {ORDER.map((c) => {
         const item = worn[c];
         return item ? <Garment key={item.id} item={item} /> : null;

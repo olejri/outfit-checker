@@ -130,26 +130,53 @@ export function shapeWithDefaults(category: Category, fit: ItemFit | null | unde
   return { ...DEFAULT_SHAPE[category], ...fit?.shape, cut };
 }
 
-export const HAIR_STYLES = [
-  { id: "none", label: "Bald" },
-  { id: "buzz", label: "Buzz cut" },
-  { id: "crew", label: "Crew cut" },
-  { id: "sidepart", label: "Side part" },
-  { id: "quiff", label: "Quiff" },
-  { id: "curls", label: "Short curls" },
-  { id: "mohawk", label: "Mohawk" },
-  { id: "pixie", label: "Pixie" },
-  { id: "bob", label: "Bob" },
-  { id: "lob", label: "Shoulder length" },
+export const HAIR_GROUPS = [
+  { id: "short", label: "Short" },
+  { id: "medium", label: "Medium" },
   { id: "long", label: "Long" },
-  { id: "afro", label: "Afro" },
-  { id: "ponytail", label: "Ponytail" },
-  { id: "bun", label: "Bun" },
-  { id: "topknot", label: "Top knot" },
-  { id: "spacebuns", label: "Space buns" },
-  { id: "braids", label: "Braids" },
+  { id: "tied", label: "Tied up" },
+] as const;
+
+export const HAIR_STYLES = [
+  { id: "none", label: "Bald", group: "short" },
+  { id: "buzz", label: "Buzz cut", group: "short" },
+  { id: "waves", label: "Waves", group: "short" },
+  { id: "crew", label: "Crew cut", group: "short" },
+  { id: "fade", label: "Skin fade", group: "short" },
+  { id: "crop", label: "French crop", group: "short" },
+  { id: "flattop", label: "Flat top", group: "short" },
+  { id: "sidepart", label: "Side part", group: "short" },
+  { id: "quiff", label: "Quiff", group: "short" },
+  { id: "slickback", label: "Slick back", group: "short" },
+  { id: "undercut", label: "Undercut", group: "short" },
+  { id: "curls", label: "Short curls", group: "short" },
+  { id: "mohawk", label: "Mohawk", group: "short" },
+  { id: "pixie", label: "Pixie", group: "short" },
+  { id: "curtains", label: "Curtains", group: "medium" },
+  { id: "surfer", label: "Shaggy", group: "medium" },
+  { id: "bob", label: "Bob", group: "medium" },
+  { id: "afro", label: "Afro", group: "medium" },
+  { id: "lob", label: "Shoulder length", group: "long" },
+  { id: "long", label: "Long", group: "long" },
+  { id: "dreads", label: "Locs", group: "long" },
+  { id: "manbun", label: "Man bun", group: "tied" },
+  { id: "topknot", label: "Top knot", group: "tied" },
+  { id: "ponytail", label: "Ponytail", group: "tied" },
+  { id: "bun", label: "Bun", group: "tied" },
+  { id: "spacebuns", label: "Space buns", group: "tied" },
+  { id: "braids", label: "Braids", group: "tied" },
 ] as const;
 export type HairStyle = (typeof HAIR_STYLES)[number]["id"];
+
+export const BEARD_STYLES = [
+  { id: "none", label: "None" },
+  { id: "stubble", label: "Stubble" },
+  { id: "moustache", label: "Moustache" },
+  { id: "goatee", label: "Goatee" },
+  { id: "short", label: "Short beard" },
+  { id: "full", label: "Full beard" },
+] as const;
+export type BeardStyle = (typeof BEARD_STYLES)[number]["id"];
 
 export const HAIR_COLORS = [
   { id: "#2b231e", label: "Black" },
@@ -164,18 +191,20 @@ export const HAIR_COLORS = [
   { id: "#5676bd", label: "Blue" },
 ];
 
-export type AvatarSettings = { skin?: string; hair?: HairStyle; hairColor?: string };
+export type AvatarSettings = { skin?: string; hair?: HairStyle; hairColor?: string; beard?: BeardStyle };
 
 export const DEFAULT_AVATAR: Required<AvatarSettings> = {
   skin: "#e8b896",
   hair: "crew",
   hairColor: HAIR_COLORS[1].id,
+  beard: "none",
 };
 
 /** Fills in anything an older saved outfit doesn't have. */
 export function avatarWithDefaults(avatar: AvatarSettings | null | undefined): Required<AvatarSettings> {
   const hair = HAIR_STYLES.some((h) => h.id === avatar?.hair) ? avatar!.hair! : DEFAULT_AVATAR.hair;
-  return { skin: avatar?.skin ?? DEFAULT_AVATAR.skin, hair, hairColor: avatar?.hairColor ?? DEFAULT_AVATAR.hairColor };
+  const beard = BEARD_STYLES.some((b) => b.id === avatar?.beard) ? avatar!.beard! : DEFAULT_AVATAR.beard;
+  return { skin: avatar?.skin ?? DEFAULT_AVATAR.skin, hair, hairColor: avatar?.hairColor ?? DEFAULT_AVATAR.hairColor, beard };
 }
 
 export type Outfit = {

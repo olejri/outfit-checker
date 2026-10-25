@@ -5,9 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
+  BEARD_STYLES,
   CATEGORIES,
   DEFAULT_AVATAR,
   HAIR_COLORS,
+  HAIR_GROUPS,
   HAIR_STYLES,
   SKIN_TONES,
   allTags,
@@ -31,6 +33,7 @@ export function Studio() {
 
   const [worn, setWorn] = useState<Worn>({});
   const [avatar, setAvatar] = useState<Required<AvatarSettings>>(DEFAULT_AVATAR);
+  const [hairGroup, setHairGroup] = useState<(typeof HAIR_GROUPS)[number]["id"] | "beard">("short");
   const [name, setName] = useState("");
   const [tab, setTab] = useState<Category | "hair">("tops");
   const [tag, setTag] = useState<string | null>(null);
@@ -52,7 +55,9 @@ export function Studio() {
         const ids = new Set((data.outfit_items as { item_id: string }[]).map((o) => o.item_id));
         setWorn(items.filter((i) => ids.has(i.id)).reduce(wear, {} as Worn));
         setName(data.name);
-        setAvatar(avatarWithDefaults(data.avatar));
+        const saved = avatarWithDefaults(data.avatar);
+        setAvatar(saved);
+        setHairGroup(HAIR_STYLES.find((h) => h.id === saved.hair)?.group ?? "short");
       } else if (wearId) {
         const item = items.find((i) => i.id === wearId);
         if (item) {
@@ -164,18 +169,43 @@ export function Studio() {
               />
             ))}
           </div>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {HAIR_STYLES.map((h) => (
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+            {[...HAIR_GROUPS, { id: "beard", label: "Facial hair" } as const].map((g) => (
               <button
-                key={h.id}
-                onClick={() => setAvatar((a) => ({ ...a, hair: h.id }))}
-                className={`rounded-2xl border-2 bg-white p-1.5 text-xs ${avatar.hair === h.id ? "border-accent" : "border-line"}`}
+                key={g.id}
+                onClick={() => setHairGroup(g.id)}
+                className={`shrink-0 rounded-full border px-3 py-1 text-xs ${
+                  hairGroup === g.id ? "border-ink bg-ink text-white" : "border-line bg-white"
+                }`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- small static preview */}
-                <img src={`/hair/${h.id}.png`} alt="" className="mx-auto aspect-square w-full rounded-xl bg-canvas object-cover" />
-                <span className="mt-1 block truncate">{h.label}</span>
+                {g.label}
               </button>
             ))}
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {hairGroup === "beard"
+              ? BEARD_STYLES.map((b) => (
+                  <button
+                    key={b.id}
+                    onClick={() => setAvatar((a) => ({ ...a, beard: b.id }))}
+                    className={`rounded-2xl border-2 bg-white p-1.5 text-xs ${avatar.beard === b.id ? "border-accent" : "border-line"}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- small static preview */}
+                    <img src={`/hair/beard-${b.id}.png`} alt="" className="mx-auto aspect-square w-full rounded-xl bg-canvas object-cover" />
+                    <span className="mt-1 block truncate">{b.label}</span>
+                  </button>
+                ))
+              : HAIR_STYLES.filter((h) => h.group === hairGroup).map((h) => (
+                  <button
+                    key={h.id}
+                    onClick={() => setAvatar((a) => ({ ...a, hair: h.id }))}
+                    className={`rounded-2xl border-2 bg-white p-1.5 text-xs ${avatar.hair === h.id ? "border-accent" : "border-line"}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- small static preview */}
+                    <img src={`/hair/${h.id}.png`} alt="" className="mx-auto aspect-square w-full rounded-xl bg-canvas object-cover" />
+                    <span className="mt-1 block truncate">{h.label}</span>
+                  </button>
+                ))}
           </div>
         </div>
       ) : (
