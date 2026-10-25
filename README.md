@@ -32,6 +32,27 @@ link (`/s/<random token>`); turning it off again revokes access.
    - **Site URL**: your production address, e.g. `https://outfit-checker.vercel.app`
    - **Redirect URLs**: add `http://localhost:3000/**` and `https://<your-vercel-domain>/**`
 
+### Google sign-in (optional, free)
+
+1. Go to <https://console.cloud.google.com>, create (or pick) a project.
+2. **APIs & Services → OAuth consent screen** (now called **Google Auth Platform**): choose
+   **External**, fill in the app name, support email and developer email. Under **Data access**
+   the default scopes (`email`, `profile`, `openid`) are enough. While the app is in **Testing**,
+   only the Google accounts you add under **Audience → Test users** can sign in; click
+   **Publish app** when you want anyone to sign in (no review is needed for these basic scopes).
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**, type
+   **Web application**:
+   - **Authorized JavaScript origins**: `http://localhost:3000` and `https://<your-vercel-domain>`
+   - **Authorized redirect URIs**: `https://<your-project-ref>.supabase.co/auth/v1/callback`
+     (copy the exact value shown as **Callback URL** on Supabase's Google provider page)
+4. Copy the **Client ID** and **Client secret**.
+5. In Supabase: **Authentication → Sign In / Providers → Google**, turn it on, paste the Client ID
+   and Client secret, and save.
+6. Make sure step 6 above is done: your app's `/auth/callback` is reached through the
+   **Redirect URLs** list (`http://localhost:3000/**` and `https://<your-vercel-domain>/**`).
+
+The Google client secret lives only in Supabase. Nothing new goes into Vercel.
+
 ## 2. Run it locally
 
 Requires Node.js 20.9 or newer.
