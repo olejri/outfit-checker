@@ -16,6 +16,7 @@ export type Item = {
   category: Category;
   image_path: string;
   color: string;
+  tags: string[];
   created_at?: string;
 };
 
@@ -54,3 +55,16 @@ export function wear(worn: Worn, item: ItemWithUrl): Worn {
 }
 
 export const SKIN_TONES = ["#f5d6c6", "#e8b896", "#c68a62", "#8d5a3b", "#5c3a24"];
+
+export const SUGGESTED_TAGS = ["summer", "winter", "spring", "autumn", "work", "casual", "party", "sport"];
+
+export function normalizeTag(raw: string) {
+  return raw.trim().toLowerCase().replace(/^#/, "").replace(/\s+/g, " ").slice(0, 24);
+}
+
+/** Every tag in use, most used first. */
+export function allTags(items: { tags: string[] }[]) {
+  const counts = new Map<string, number>();
+  for (const i of items) for (const t of i.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t);
+}

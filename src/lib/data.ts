@@ -19,7 +19,7 @@ export async function withUrls(supabase: SupabaseClient, items: Item[]): Promise
 export async function loadItems(supabase: SupabaseClient): Promise<ItemWithUrl[]> {
   const { data, error } = await supabase
     .from("items")
-    .select("id, name, category, image_path, color, created_at")
+    .select("id, name, category, image_path, color, tags, created_at")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return withUrls(supabase, data as Item[]);

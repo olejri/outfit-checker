@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { CATEGORIES, SKIN_TONES, wear, type Category, type Worn } from "@/lib/types";
+import { CATEGORIES, SKIN_TONES, allTags, wear, type Category, type Worn } from "@/lib/types";
+import { TagFilter } from "@/components/Tags";
 import { AvatarView } from "@/components/AvatarView";
 import { useItems } from "@/components/useItems";
 
@@ -19,6 +20,7 @@ export function Studio() {
   const [skin, setSkin] = useState(SKIN_TONES[1]);
   const [name, setName] = useState("");
   const [tab, setTab] = useState<Category>("tops");
+  const [tag, setTag] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -51,7 +53,11 @@ export function Studio() {
     };
   }, [items, outfitId, wearId]);
 
-  const inTab = useMemo(() => (items ?? []).filter((i) => i.category === tab), [items, tab]);
+  const tags = useMemo(() => allTags(items ?? []), [items]);
+  const inTab = useMemo(
+    () => (items ?? []).filter((i) => i.category === tab && (!tag || i.tags.includes(tag))),
+    [items, tab, tag],
+  );
   const wornList = Object.values(worn);
 
   async function save() {
@@ -123,11 +129,13 @@ export function Studio() {
         ))}
       </div>
 
+      <TagFilter tags={tags} value={tag} onChange={setTag} />
+
       {items === null ? (
         <p className="text-sm text-muted">Loading wardrobe…</p>
       ) : inTab.length === 0 ? (
         <p className="rounded-2xl bg-white p-4 text-sm text-muted">
-          No {CATEGORIES.find((c) => c.id === tab)?.label.toLowerCase()} yet.{" "}
+          No {CATEGORIES.find((c) => c.id === tab)?.label.toLowerCase()} {tag ? `tagged #${tag}` : "yet"}.{" "}
           <Link href="/wardrobe/new" className="font-semibold text-accent">
             Add one
           </Link>

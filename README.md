@@ -10,6 +10,10 @@ Photograph your clothes, sort them into a wardrobe, and try outfits on a 3D mode
 - **@imgly/background-removal** removes photo backgrounds in the browser, so nothing is sent to a
   paid API
 
+Items can be tagged (summer, winter, work, or anything you type) and filtered by tag in the
+Wardrobe and Try on screens. An empty wardrobe offers **Add test items**: one drawn item per
+category, tagged `test`, plus two ready-made test outfits.
+
 Outfits are private. Turning on "Share with link" makes one outfit viewable by anyone who has its
 link (`/s/<random token>`); turning it off again revokes access.
 
@@ -17,9 +21,11 @@ link (`/s/<random token>`); turning it off again revokes access.
 
 1. Sign up at <https://supabase.com> and click **New project**. Pick the Free plan, any name, a
    database password (save it somewhere) and the region closest to you.
-2. When the project is ready, open **SQL Editor → New query**, paste the whole of
-   [`supabase/schema.sql`](supabase/schema.sql) and click **Run**. This creates the tables, the
-   security policies and the private `wardrobe` storage bucket. It is safe to run again.
+2. Create the database tables. Either let GitHub do it (see
+   [Automatic database migrations](#automatic-database-migrations)), or open
+   **SQL Editor → New query** and paste and run each file in
+   [`supabase/migrations`](supabase/migrations) in name order. They create the tables, the
+   security policies and the private `wardrobe` storage bucket, and are safe to run again.
 3. Open **Project Settings → API Keys** and copy the **Publishable key** (starts with
    `sb_publishable_`). Older projects show an **anon** key instead; that works too.
 4. Open **Project Settings → Data API** and copy the **Project URL**
@@ -85,6 +91,28 @@ camera access over HTTPS).
 That is all. The app never uses the Supabase **secret** / **service_role** key; do not add it to
 Vercel.
 
+## Automatic database migrations
+
+A GitHub Action ([`.github/workflows/supabase-migrations.yml`](.github/workflows/supabase-migrations.yml))
+runs `supabase db push` whenever a push to `main` changes `supabase/migrations`, and can also be
+started by hand from the **Actions** tab (**Supabase migrations → Run workflow**). It is free on
+GitHub. Supabase records which migrations it has applied, so each file runs only once.
+
+Add these under GitHub → your repository → **Settings → Secrets and variables → Actions → New
+repository secret**:
+
+| Secret | Where to find it |
+| --- | --- |
+| `SUPABASE_ACCESS_TOKEN` | Supabase → your avatar (top right) → **Account preferences → Access Tokens → Generate new token** |
+| `SUPABASE_PROJECT_ID` | The project ref: the `xxxx` in `https://xxxx.supabase.co`, also under **Project Settings → General → Project ID** |
+| `SUPABASE_DB_PASSWORD` | The database password you chose when creating the project. Forgot it? **Project Settings → Database → Reset database password** |
+
+These stay in GitHub. Nothing new goes into Vercel.
+
+To change the database, add a new file such as `supabase/migrations/20261101120000_add_brand.sql`
+(timestamp first, so files sort in order) and push. Vercel and the Action start at the same time,
+so for a change the new code depends on, push the migration first.
+
 ## How it fits together
 
 | Path | What it does |
@@ -95,7 +123,8 @@ Vercel.
 | `src/app/s/[token]` | Public read-only view of a shared outfit |
 | `src/components/three` | Mannequin, garment templates and the scene |
 | `src/proxy.ts` | Keeps the Supabase session fresh and sends signed-out visitors to `/login` |
-| `supabase/schema.sql` | Tables, row level security, storage bucket and policies |
+| `supabase/migrations` | Tables, row level security, storage bucket and policies, one file per change |
+| `.github/workflows/supabase-migrations.yml` | Applies new migrations to Supabase on every push to `main` |
 
 ### Data and privacy
 

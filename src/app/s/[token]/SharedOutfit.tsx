@@ -19,7 +19,7 @@ export function SharedOutfit() {
       const supabase = createClient();
       const { data, error } = await supabase.rpc("get_shared_outfit", { token });
       if (error || !data) return setOutfit("missing");
-      const items = await withUrls(supabase, data.items as Item[]).catch(() => []);
+      const items = await withUrls(supabase, (data.items as Item[]).map((i) => ({ ...i, tags: i.tags ?? [] }))).catch(() => []);
       setOutfit({ name: data.name, avatar: data.avatar ?? {}, worn: items.reduce(wear, {} as Worn) });
     })();
   }, [token]);

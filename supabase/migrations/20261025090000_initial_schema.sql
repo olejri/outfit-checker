@@ -1,4 +1,6 @@
--- Outfit Checker schema. Run this once in Supabase: SQL Editor -> New query -> paste -> Run.
+-- Outfit Checker schema. Applied automatically by .github/workflows/supabase-migrations.yml.
+-- Every statement is idempotent, so it is safe on a database that was set up by hand.
+-- Manual setup: SQL Editor -> New query -> paste each file in supabase/migrations in order -> Run.
 -- Everything is private to its owner. An outfit becomes viewable by anyone with its
 -- share link only when the owner turns sharing on.
 
@@ -11,9 +13,13 @@ create table if not exists public.items (
                 ('tops', 'bottoms', 'outerwear', 'dresses', 'shoes', 'hats', 'accessories')),
   image_path  text not null,           -- path inside the "wardrobe" storage bucket
   color       text not null default '#888888', -- dominant colour, used on the 3D garment
+  tags        text[] not null default '{}',     -- e.g. summer, winter, work
   created_at  timestamptz not null default now()
 );
 create index if not exists items_user_idx on public.items (user_id, category);
+-- Tags were added later; these two lines also upgrade older projects.
+alter table public.items add column if not exists tags text[] not null default '{}';
+create index if not exists items_tags_idx on public.items using gin (tags);
 
 -- Outfits -------------------------------------------------------------------
 create table if not exists public.outfits (
@@ -79,7 +85,7 @@ as $$
     'items', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', i.id, 'name', i.name, 'category', i.category,
-        'image_path', i.image_path, 'color', i.color))
+        'image_path', i.image_path, 'color', i.color, 'tags', i.tags))
       from public.outfit_items oi
       join public.items i on i.id = oi.item_id
       where oi.outfit_id = o.id), '[]'::jsonb)

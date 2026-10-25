@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { BUCKET } from "@/lib/data";
 import { downscale, removeBackground, trimAndAnalyse } from "@/lib/image";
-import { CATEGORIES, type Category } from "@/lib/types";
+import { CATEGORIES, allTags, type Category } from "@/lib/types";
+import { TagEditor } from "@/components/Tags";
 
 type Stage =
   | { kind: "pick" }
@@ -22,7 +23,16 @@ export default function NewItemPage() {
   const [cutout, setCutout] = useState(true);
   const [name, setName] = useState("");
   const [category, setCategory] = useState<Category>("tops");
+  const [tags, setTags] = useState<string[]>([]);
+  const [knownTags, setKnownTags] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    createClient()
+      .from("items")
+      .select("tags")
+      .then(({ data }) => setKnownTags(allTags((data as { tags: string[] }[]) ?? [])));
+  }, []);
 
   const preview = stage.kind === "review" ? stage.preview : null;
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
@@ -68,7 +78,7 @@ export default function NewItemPage() {
       const path = `${auth.user.id}/${crypto.randomUUID()}.png`;
       const up = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: "image/png" });
       if (up.error) throw up.error;
-      const { error } = await supabase.from("items").insert({ name: name.trim(), category, image_path: path, color });
+      const { error } = await supabase.from("items").insert({ name: name.trim(), category, image_path: path, color, tags });
       if (error) {
         await supabase.storage.from(BUCKET).remove([path]);
         throw error;
@@ -152,6 +162,10 @@ export default function NewItemPage() {
                 {c.label}
               </button>
             ))}
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium">Tags</p>
+            <TagEditor value={tags} onChange={setTags} extra={knownTags} />
           </div>
           {error && <p className="rounded-xl bg-white p-3 text-sm text-red-700">{error}</p>}
           <div className="flex gap-2">
