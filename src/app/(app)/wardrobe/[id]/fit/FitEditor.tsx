@@ -9,6 +9,7 @@ import { withUrls } from "@/lib/data";
 import {
   CAPTURE_STEPS,
   CATEGORIES,
+  LEG_CUTS,
   SHAPE_CONTROLS,
   VIEWS,
   shapeWithDefaults,
@@ -20,6 +21,7 @@ import {
   type View,
 } from "@/lib/types";
 import { CropSheet } from "./CropSheet";
+import { ItemPhoto } from "@/components/ItemPhoto";
 
 // three.js needs the browser, so the scene is never rendered on the server.
 const FitScene = dynamic(() => import("@/components/three/FitScene"), {
@@ -165,8 +167,7 @@ export function FitEditor() {
 
           <div className="flex items-center gap-4">
             <button onClick={() => setCropping(true)} className="checker h-24 w-24 shrink-0 rounded-2xl border border-line p-1.5">
-              {/* eslint-disable-next-line @next/next/no-img-element -- signed storage URL */}
-              <img src={item.viewUrls[side]} alt="" className="h-full w-full object-contain" />
+              <ItemPhoto item={preview} view={side} className="h-full w-full object-contain" />
             </button>
             <div className="flex-1 space-y-2">
               <button className="btn-ghost w-full py-2.5" onClick={() => setCropping(true)}>
@@ -209,6 +210,24 @@ export function FitEditor() {
         </div>
       ) : (
         <div className="space-y-4 rounded-2xl bg-white p-4">
+          {item.category === "bottoms" && (
+            <div>
+              <span className="mb-1.5 block text-sm font-medium">Leg cut</span>
+              <div className="flex flex-wrap gap-2">
+                {LEG_CUTS.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => change((f) => ({ ...f, cut: c.id }))}
+                    className={`rounded-full border px-3.5 py-1.5 text-sm ${
+                      shape.cut === c.id ? "border-ink bg-ink text-white" : "border-line bg-white"
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {SHAPE_CONTROLS[item.category].map((c) => (
             <label key={c.key + c.label} className="block">
               <span className="mb-1 block text-sm font-medium">{c.label}</span>
@@ -229,11 +248,12 @@ export function FitEditor() {
           ))}
           <button
             className="btn-ghost w-full"
-            disabled={!fit.shape}
+            disabled={!fit.shape && !fit.cut}
             onClick={() =>
               change((f) => {
                 const next = { ...f };
                 delete next.shape;
+                delete next.cut;
                 return next;
               })
             }

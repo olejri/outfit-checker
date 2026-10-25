@@ -20,6 +20,7 @@ import {
 import { TagFilter } from "@/components/Tags";
 import { AvatarView } from "@/components/AvatarView";
 import { useItems } from "@/components/useItems";
+import { ItemPhoto } from "@/components/ItemPhoto";
 
 export function Studio() {
   const router = useRouter();
@@ -201,8 +202,7 @@ export function Studio() {
                     className={`checker h-24 w-24 shrink-0 rounded-2xl border-2 p-1.5 ${on ? "border-accent" : "border-line"}`}
                     title={item.name}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element -- signed storage URL */}
-                    <img src={item.url} alt={item.name} className="h-full w-full object-contain" />
+                    <ItemPhoto item={item} className="h-full w-full object-contain" />
                   </button>
                 );
               })}

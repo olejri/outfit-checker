@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Outfit } from "@/lib/types";
 import { useItems } from "@/components/useItems";
+import { ItemPhoto } from "@/components/ItemPhoto";
 
 export default function OutfitsPage() {
   const { items } = useItems();
@@ -86,8 +87,7 @@ export default function OutfitsPage() {
                   const item = byId.get(item_id);
                   return (
                     <div key={item_id} className="checker h-16 w-16 shrink-0 rounded-xl border border-line p-1">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- signed storage URL */}
-                      {item && <img src={item.url} alt={item.name} className="h-full w-full object-contain" />}
+                      {item && <ItemPhoto item={item} className="h-full w-full object-contain" />}
                     </div>
                   );
                 })}

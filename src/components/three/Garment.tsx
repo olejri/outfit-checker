@@ -9,12 +9,12 @@ import {
   type Category,
   type ItemFit,
   type ItemWithUrl,
-  type ShapeKey,
+  type LegCut,
+  type Shape,
   type View,
 } from "@/lib/types";
 import { BODY, place, projectViews, shoulder, sleeve, torsoShell, type ProjectionBox, type Range } from "./geometry";
 
-type Shape = Record<ShapeKey, number>;
 
 type Template = {
   parts: (shape: Shape) => THREE.BufferGeometry[];
@@ -31,12 +31,91 @@ const looseness = (s: Shape) => around1(s.looseness, 0.96, 1.25);
 const size = (s: Shape, min = 0.85) => around1(s.looseness, min, 1.25);
 const MAX_SLEEVE = 0.56;
 
-const legs = (bottom: number, r: number) =>
-  ([1, -1] as const).map((s) =>
-    place(new THREE.CylinderGeometry(r, r * 0.92, 0.94 - bottom, 32, 4, true), {
-      pos: [s * BODY.legX, (0.94 + bottom) / 2, 0],
-    }),
-  );
+const smooth = (t: number) => t * t * (3 - 2 * t);
+
+/** Radius of a trouser leg at the knee and at the hem, and the crotch height, by cut. */
+const CUTS: Record<LegCut, { knee: number; hem: number; crotch: number }> = {
+  skinny: { knee: 0.07, hem: 0.067, crotch: 0.78 },
+  straight: { knee: 0.08, hem: 0.075, crotch: 0.78 },
+  flared: { knee: 0.074, hem: 0.118, crotch: 0.78 },
+  wide: { knee: 0.1, hem: 0.125, crotch: 0.77 },
+  baggy: { knee: 0.115, hem: 0.112, crotch: 0.71 },
+};
+
+/**
+ * Outline of a trouser leg at height `y`: how far its centre is from the middle of the
+ * body and its radius. Near the top both legs overlap into one piece (the seat and
+ * crotch), below the crotch they part, and from the knee down they follow the cut,
+ * made tighter or looser by `loose` (0.5 is the cut as is). Wide legs move outwards
+ * so they stay apart.
+ */
+function legOutline(y: number, cut: LegCut, loose: number, k: number) {
+  const shape = CUTS[cut];
+  // Never tighter than the mannequin's leg.
+  const fit = (r: number) => Math.max(0.068, r * around1(loose, 0.9, 1.3));
+  const knee = fit(shape.knee);
+  const hem = fit(shape.hem);
+  const crotch = shape.crotch;
+  const keys = [
+    { y: 0.88, r: 0.086 * k + 0.006, cx: 0.086 * k },
+    { y: crotch, r: Math.max(BODY.legX + 0.002, knee), cx: BODY.legX },
+    { y: 0.5, r: knee },
+    { y: 0.02, r: hem },
+  ];
+  let r = keys[0].r;
+  let cx = keys[0].cx!;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i];
+    const b = keys[i + 1];
+    if (y <= a.y && y >= b.y) {
+      const t = smooth((a.y - y) / (a.y - b.y));
+      r = lerp(a.r, b.r, t);
+      cx = a.cx !== undefined && b.cx !== undefined ? lerp(a.cx, b.cx, t) : BODY.legX;
+    }
+  }
+  if (y < keys[keys.length - 1].y) r = hem;
+  // Below the crotch, wide legs ease outwards so they don't run into each other.
+  if (y < crotch) cx = BODY.legX + Math.max(0, r + 0.006 - BODY.legX) * smooth(Math.min(1, (crotch - y) / 0.1));
+  return { r, cx };
+}
+
+/** Both trouser legs from the hips down to `bottom`, following legOutline. */
+function trouserLegs(bottom: number, cut: LegCut, loose: number, k: number) {
+  const top = 0.88;
+  const rows = 48;
+  const cols = 32;
+  return ([1, -1] as const).map((side) => {
+    const g = new THREE.CylinderGeometry(1, 1, top - bottom, cols, rows, true);
+    const p = g.attributes.position;
+    const n = g.attributes.normal;
+    const h = 0.002;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i) + (top + bottom) / 2;
+      const c = p.getX(i);
+      const s = p.getZ(i);
+      const { r, cx } = legOutline(y, cut, loose, k);
+      p.setXYZ(i, side * (cx + r * c), y, r * s);
+      // Surface normal from the slope of the outline (pointing outwards).
+      const up = legOutline(y + h, cut, loose, k);
+      const down = legOutline(y - h, cut, loose, k);
+      const dr = (up.r - down.r) / (2 * h);
+      const dcx = (up.cx - down.cx) / (2 * h);
+      const v = new THREE.Vector3(side * c, -(dr + c * dcx), s).normalize();
+      n.setXYZ(i, v.x, v.y, v.z);
+    }
+    return g;
+  });
+}
+
+/** Widest point of the trousers from the middle, so the photo covers both legs. */
+function trouserHalfWidth(bottom: number, cut: LegCut, loose: number, k: number) {
+  let widest = 0.172 * k;
+  for (let y = bottom; y <= 0.88; y += 0.02) {
+    const { r, cx } = legOutline(y, cut, loose, k);
+    widest = Math.max(widest, cx + r);
+  }
+  return widest;
+}
 
 /** Shoulders and sleeves, or nothing for a sleeveless garment. */
 const arms = (shoulderR: number, sleeveR: number, sleeveShare: number) => {
@@ -86,9 +165,13 @@ const TEMPLATES: Record<Category, Template> = {
   bottoms: {
     parts: (s) => {
       const k = looseness(s);
-      return [torsoShell(1.04, 0.86, 0.165 * k, 0.172 * k), ...legs(lerp(0.66, 0.02, s.length), 0.079 * k)];
+      return [torsoShell(1.04, 0.86, 0.165 * k, 0.172 * k), ...trouserLegs(lerp(0.66, 0.02, s.length), s.cut, s.looseness, k)];
     },
-    box: (s) => ({ x: [-0.18 * looseness(s), 0.18 * looseness(s)], y: [lerp(0.66, 0.02, s.length), 1.04] }),
+    box: (s) => {
+      const bottom = lerp(0.66, 0.02, s.length);
+      const half = Math.max(0.18 * looseness(s), trouserHalfWidth(bottom, s.cut, s.looseness, looseness(s)));
+      return { x: [-half, half], y: [bottom, 1.04] };
+    },
   },
   shoes: {
     parts: (s) => {

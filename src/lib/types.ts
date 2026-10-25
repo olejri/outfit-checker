@@ -78,8 +78,20 @@ export type ShapeKey = (typeof SHAPE_KEYS)[number];
 export type ItemFit = {
   photos?: Partial<Record<View, PhotoFit>>;
   shape?: Partial<Record<ShapeKey, number>>;
+  /** How trouser legs are cut; only used by bottoms. */
+  cut?: LegCut;
   source?: "manual" | "auto";
 };
+
+/** Trouser leg cuts. The Fit slider then makes any of them tighter or looser. */
+export const LEG_CUTS = [
+  { id: "skinny", label: "Skinny" },
+  { id: "straight", label: "Straight" },
+  { id: "flared", label: "Flared" },
+  { id: "wide", label: "Wide" },
+  { id: "baggy", label: "Baggy" },
+] as const;
+export type LegCut = (typeof LEG_CUTS)[number]["id"];
 
 type ShapeControl = { key: ShapeKey; label: string; low: string; high: string };
 
@@ -111,8 +123,11 @@ export const DEFAULT_SHAPE: Record<Category, Record<ShapeKey, number>> = {
   accessories: { length: 0.5, looseness: 0.5, sleeve: 0, neckline: 0 },
 };
 
-export function shapeWithDefaults(category: Category, fit: ItemFit | null | undefined) {
-  return { ...DEFAULT_SHAPE[category], ...fit?.shape };
+export type Shape = Record<ShapeKey, number> & { cut: LegCut };
+
+export function shapeWithDefaults(category: Category, fit: ItemFit | null | undefined): Shape {
+  const cut = LEG_CUTS.some((c) => c.id === fit?.cut) ? fit!.cut! : "straight";
+  return { ...DEFAULT_SHAPE[category], ...fit?.shape, cut };
 }
 
 export const HAIR_STYLES = [

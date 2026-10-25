@@ -8,6 +8,7 @@ import { addSampleWardrobe } from "@/lib/samples";
 import { CATEGORIES, allTags, type Category, type ItemWithUrl } from "@/lib/types";
 import { TagEditor, TagFilter } from "@/components/Tags";
 import { useItems } from "@/components/useItems";
+import { ItemPhoto } from "@/components/ItemPhoto";
 
 export default function WardrobePage() {
   const { items, setItems, error, reload } = useItems();
@@ -106,8 +107,7 @@ export default function WardrobePage() {
               className="group overflow-hidden rounded-2xl border border-line bg-white text-left"
             >
               <div className="checker aspect-square p-2">
-                {/* eslint-disable-next-line @next/next/no-img-element -- signed storage URL */}
-                <img src={item.url} alt={item.name} className="h-full w-full object-contain" />
+                <ItemPhoto item={item} className="h-full w-full object-contain" />
               </div>
               <div className="px-3 py-2">
                 <div className="flex items-center gap-2">
@@ -135,8 +135,7 @@ export default function WardrobePage() {
         <div className="fixed inset-0 z-30 flex items-end bg-black/40 sm:items-center sm:justify-center" onClick={() => setSelected(null)}>
           <div className="w-full rounded-t-3xl bg-white p-5 sm:max-w-sm sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <div className="checker mb-4 aspect-square rounded-2xl p-4">
-              {/* eslint-disable-next-line @next/next/no-img-element -- signed storage URL */}
-              <img src={selected.url} alt={selected.name} className="h-full w-full object-contain" />
+              <ItemPhoto item={selected} className="h-full w-full object-contain" />
             </div>
             <p className="font-semibold">{selected.name || labelFor(selected.category)}</p>
             <p className="mb-3 text-sm text-muted">{labelFor(selected.category)}</p>
