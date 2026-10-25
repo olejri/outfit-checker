@@ -10,6 +10,25 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number]["id"];
 
+/** Sides an item can be photographed from. Left and right are the wearer's. */
+export const VIEWS = ["front", "back", "left", "right"] as const;
+export type View = (typeof VIEWS)[number];
+
+/**
+ * Photo steps when adding an item, in order. The first is required and becomes the
+ * item's main photo. Shoes start with a side view because that is how shoes are
+ * recognised, and older shoe photos are side views too.
+ */
+export const CAPTURE_STEPS: Record<Category, View[]> = {
+  tops: ["front", "back", "left", "right"],
+  bottoms: ["front", "back", "left", "right"],
+  outerwear: ["front", "back", "left", "right"],
+  dresses: ["front", "back", "left", "right"],
+  shoes: ["left", "right", "front", "back"],
+  hats: ["front", "back", "left", "right"],
+  accessories: ["front", "back"],
+};
+
 export type Item = {
   id: string;
   name: string;
@@ -17,11 +36,20 @@ export type Item = {
   image_path: string;
   color: string;
   tags: string[];
+  /** Storage paths of photos from each side; empty on items added before this existed. */
+  views: Partial<Record<View, string>>;
   created_at?: string;
 };
 
-/** An item with a ready-to-use (signed) image URL. */
-export type ItemWithUrl = Item & { url: string };
+/** An item with ready-to-use (signed) image URLs. */
+export type ItemWithUrl = Item & { url: string; viewUrls: Partial<Record<View, string>> };
+
+/** Photos of an item by side. Older items only have their main photo. */
+export function itemViews(item: Pick<Item, "category" | "image_path" | "views">) {
+  const views = { ...item.views };
+  if (Object.keys(views).length === 0) views[CAPTURE_STEPS[item.category][0]] = item.image_path;
+  return views;
+}
 
 export type AvatarSettings = { skin?: string };
 

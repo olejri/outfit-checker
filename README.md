@@ -4,7 +4,8 @@ Photograph your clothes, sort them into a wardrobe, and try outfits on a 3D mode
 
 - **Next.js 16** (App Router) + **Tailwind CSS 4**, mobile first
 - **React Three Fiber** for the 3D model: a built-in mannequin with one garment template per
-  category; each clothing photo is projected onto its template
+  category; photos of the item from the front, back and sides are projected onto its template
+  and blended by which way each surface faces
 - **Supabase** (free tier) for sign-in, the database and private image storage, all behind
   row level security
 - **@imgly/background-removal** removes photo backgrounds in the browser, so nothing is sent to a
@@ -117,7 +118,7 @@ so for a change the new code depends on, push the migration first.
 
 | Path | What it does |
 | --- | --- |
-| `src/app/(app)/wardrobe` | Wardrobe grid with category filters; `new/` takes or uploads a photo, removes the background, trims it and finds the dominant colour |
+| `src/app/(app)/wardrobe` | Wardrobe grid with category filters; `new/` guides you through photos of each side (front required, back and sides optional), removes the backgrounds, trims them and finds the dominant colour |
 | `src/app/(app)/studio` | 3D try-on: pick one item per category (a dress replaces top and bottom), choose skin tone, save or update the outfit |
 | `src/app/(app)/outfits` | Saved outfits, share toggle, share/copy link, delete |
 | `src/app/s/[token]` | Public read-only view of a shared outfit |
@@ -148,5 +149,4 @@ for another library.
 
 - Swap the mannequin for a rigged glTF avatar (e.g. from Ready Player Me or Mixamo) and map the
   garment templates onto its bones
-- Separate front and back photos per item
 - Outfit thumbnails (the canvas already keeps its drawing buffer, so a snapshot is one call away)

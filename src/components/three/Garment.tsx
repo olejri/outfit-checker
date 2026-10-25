@@ -2,13 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
-import type { Category, ItemWithUrl } from "@/lib/types";
-import { BODY, place, project, shoulder, sleeve, torsoShell } from "./geometry";
+import { VIEWS, type Category, type ItemWithUrl, type View } from "@/lib/types";
+import { BODY, place, projectViews, shoulder, sleeve, torsoShell, type ProjectionBox } from "./geometry";
 
 type Template = {
   parts: () => THREE.BufferGeometry[];
-  box: { x: [number, number]; y: [number, number] };
-  axis?: "x" | "z";
+  box: ProjectionBox;
 };
 
 const legs = (bottom: number, r: number) =>
@@ -20,7 +19,7 @@ const legs = (bottom: number, r: number) =>
 
 /**
  * One template mesh per category, sized to sit just outside the mannequin.
- * `box` is the area (in metres, seen from the front) the photo is stretched across.
+ * `box` is the area (in metres) each side's photo is stretched across.
  */
 const TEMPLATES: Record<Category, Template> = {
   tops: {
@@ -59,8 +58,7 @@ const TEMPLATES: Record<Category, Template> = {
       ([1, -1] as const).map((s) =>
         place(new THREE.BoxGeometry(0.11, 0.1, 0.27, 2, 2, 4), { pos: [s * BODY.legX, 0.05, 0.05] }),
       ),
-    box: { x: [-0.19, 0.09], y: [0, 0.1] },
-    axis: "z",
+    box: { x: [-0.06, 0.06], y: [0, 0.1], z: [-0.09, 0.19], perPart: true },
   },
   hats: {
     parts: () => [
@@ -76,60 +74,150 @@ const TEMPLATES: Record<Category, Template> = {
 };
 
 /**
- * Paints the photo over the garment's dominant colour, so transparent areas of the
+ * Paints each photo over the garment's dominant colour, so transparent areas of the
  * cut-out (around sleeves, between legs) show cloth instead of holes.
  */
-function useGarmentTexture(url: string, color: string) {
-  const [texture, setTexture] = useState<THREE.CanvasTexture | null>(null);
+function useViewTextures(urls: Partial<Record<View, string>>, color: string) {
+  const [textures, setTextures] = useState<Partial<Record<View, THREE.CanvasTexture>> | null>(null);
+  const key = VIEWS.map((v) => urls[v] ?? "").join("|");
 
   useEffect(() => {
     let cancelled = false;
-    let made: THREE.CanvasTexture | null = null;
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
+    const made: THREE.CanvasTexture[] = [];
+    const load = (url: string) =>
+      new Promise<THREE.CanvasTexture | null>((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext("2d")!;
+          ctx.fillStyle = color;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.anisotropy = 4;
+          made.push(texture);
+          resolve(texture);
+        };
+        img.onerror = () => resolve(null);
+        img.src = url;
+      });
+
+    const urlList = key.split("|");
+    Promise.all(VIEWS.map((v, i) => (urlList[i] ? load(urlList[i]) : null))).then((loaded) => {
       if (cancelled) return;
-      const canvas = document.createElement("canvas");
-      const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = color;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      made = new THREE.CanvasTexture(canvas);
-      made.colorSpace = THREE.SRGBColorSpace;
-      made.anisotropy = 4;
-      setTexture(made);
-    };
-    img.src = url;
+      const next: Partial<Record<View, THREE.CanvasTexture>> = {};
+      VIEWS.forEach((v, i) => { if (loaded[i]) next[v] = loaded[i]!; });
+      setTextures(Object.keys(next).length ? next : null);
+    });
     return () => {
       cancelled = true;
-      made?.dispose();
+      made.forEach((t) => t.dispose());
     };
-  }, [url, color]);
+  }, [key, color]);
 
-  return texture;
+  return textures;
+}
+
+const OPPOSITE: Record<View, View> = { front: "back", back: "front", left: "right", right: "left" };
+
+/**
+ * Blends the four photos by which way the surface faces, so the chest shows the front
+ * photo, the shoulder blades the back one and the sleeves the side ones, with soft
+ * seams in between. A missing side borrows the opposite photo, seen through the
+ * garment (which is how single-photo items always looked); if both are missing, that
+ * axis is left out and the other one covers it.
+ */
+function viewMaterial(textures: Partial<Record<View, THREE.CanvasTexture>>) {
+  const fallback = Object.values(textures)[0]!;
+  const maps: THREE.Texture[] = [];
+  const uvIndex: number[] = [];
+  const enabled: number[] = [];
+  VIEWS.forEach((view) => {
+    const source = textures[view] ? view : textures[OPPOSITE[view]] ? OPPOSITE[view] : null;
+    maps.push(source ? textures[source]! : fallback);
+    uvIndex.push(source ? VIEWS.indexOf(source) : 0);
+    enabled.push(source ? 1 : 0);
+  });
+
+  const material = new THREE.MeshStandardMaterial({ roughness: 0.85, side: THREE.DoubleSide });
+  material.customProgramCacheKey = () => "garment-views";
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, {
+      mapFront: { value: maps[0] },
+      mapBack: { value: maps[1] },
+      mapLeft: { value: maps[2] },
+      mapRight: { value: maps[3] },
+      viewUv: { value: new THREE.Vector4(...uvIndex) },
+      viewOn: { value: new THREE.Vector4(...enabled) },
+    });
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        attribute vec2 uvBack;
+        attribute vec2 uvLeft;
+        attribute vec2 uvRight;
+        varying vec2 vUvViews[4];
+        varying vec3 vBodyNormal;`,
+      )
+      .replace(
+        "#include <uv_vertex>",
+        `#include <uv_vertex>
+        vUvViews[0] = uv;
+        vUvViews[1] = uvBack;
+        vUvViews[2] = uvLeft;
+        vUvViews[3] = uvRight;
+        vBodyNormal = normal;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        uniform sampler2D mapFront;
+        uniform sampler2D mapBack;
+        uniform sampler2D mapLeft;
+        uniform sampler2D mapRight;
+        uniform vec4 viewUv;
+        uniform vec4 viewOn;
+        varying vec2 vUvViews[4];
+        varying vec3 vBodyNormal;
+        vec2 viewCoord(float i) {
+          return i < 0.5 ? vUvViews[0] : i < 1.5 ? vUvViews[1] : i < 2.5 ? vUvViews[2] : vUvViews[3];
+        }`,
+      )
+      .replace(
+        "#include <map_fragment>",
+        `vec3 bn = normalize(vBodyNormal);
+        // +z is the front, +x the wearer's left.
+        vec4 w = viewOn * exp(8.0 * vec4(bn.z, -bn.z, bn.x, -bn.x));
+        w /= max(dot(w, vec4(1.0)), 1e-5);
+        diffuseColor *=
+          texture2D(mapFront, viewCoord(viewUv.x)) * w.x +
+          texture2D(mapBack, viewCoord(viewUv.y)) * w.y +
+          texture2D(mapLeft, viewCoord(viewUv.z)) * w.z +
+          texture2D(mapRight, viewCoord(viewUv.w)) * w.w;`,
+      );
+  };
+  return material;
 }
 
 export function Garment({ item }: { item: ItemWithUrl }) {
   const template = TEMPLATES[item.category];
-  const geometries = useMemo(
-    () => project(template.parts(), template.box, template.axis),
-    [template],
-  );
+  const geometries = useMemo(() => projectViews(template.parts(), template.box), [template]);
   useEffect(() => () => geometries.forEach((g) => g.dispose()), [geometries]);
 
-  const texture = useGarmentTexture(item.url, item.color);
+  const textures = useViewTextures(item.viewUrls, item.color);
   const material = useMemo(
     () =>
-      new THREE.MeshStandardMaterial({
-        color: texture ? "#ffffff" : item.color,
-        map: texture,
-        roughness: 0.85,
-        side: THREE.DoubleSide,
-      }),
-    [texture, item.color],
+      textures
+        ? viewMaterial(textures)
+        : new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.85, side: THREE.DoubleSide }),
+    [textures, item.color],
   );
   useEffect(() => () => material.dispose(), [material]);
 

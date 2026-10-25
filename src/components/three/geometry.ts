@@ -11,24 +11,46 @@ export function place(g: THREE.BufferGeometry, { pos = [0, 0, 0], rotZ = 0, scal
   return g;
 }
 
+export type Range = [number, number];
+
 /**
- * Projects the clothing photo straight on from the front (or the side), like a slide
- * projector. The back gets the mirror image, which reads fine for most garments.
+ * Where each photo is stretched across, in metres. `x`/`y` is the area seen from the
+ * front (and back), `z` the depth seen from the sides; it defaults to the garment's own
+ * depth. With `perPart`, front and back are measured from each part's centre, so a
+ * pair of shoes each get the whole photo.
  */
-export function project(
-  geometries: THREE.BufferGeometry[],
-  box: { x: [number, number]; y: [number, number] },
-  axis: "x" | "z" = "x",
-) {
+export type ProjectionBox = { x: Range; y: Range; z?: Range; perPart?: boolean };
+
+const at = (v: number, [a, b]: Range) => (v - a) / (b - a);
+
+/**
+ * Projects each side's photo straight on, like four slide projectors around the body.
+ * Writes one UV set per side: `uv` (front), `uvBack`, `uvLeft` and `uvRight`. Left
+ * and right are the wearer's: the left photo is taken from +x with the front of the
+ * garment pointing at the left edge of the picture.
+ */
+export function projectViews(geometries: THREE.BufferGeometry[], box: ProjectionBox) {
+  const bounds = new THREE.Box3();
   for (const g of geometries) {
+    g.computeBoundingBox();
+    bounds.union(g.boundingBox!);
+  }
+  const z: Range = box.z ?? [bounds.min.z - 0.005, bounds.max.z + 0.005];
+
+  for (const g of geometries) {
+    const centre = box.perPart ? (g.boundingBox!.min.x + g.boundingBox!.max.x) / 2 : 0;
     const p = g.attributes.position;
-    const uv = new Float32Array(p.count * 2);
+    const sets = { uv: new Float32Array(p.count * 2), uvBack: new Float32Array(p.count * 2), uvLeft: new Float32Array(p.count * 2), uvRight: new Float32Array(p.count * 2) };
     for (let i = 0; i < p.count; i++) {
-      const h = axis === "x" ? p.getX(i) : -p.getZ(i);
-      uv[i * 2] = (h - box.x[0]) / (box.x[1] - box.x[0]);
-      uv[i * 2 + 1] = (p.getY(i) - box.y[0]) / (box.y[1] - box.y[0]);
+      const u = at(p.getX(i) - centre, box.x);
+      const w = at(p.getZ(i), z);
+      const v = at(p.getY(i), box.y);
+      sets.uv.set([u, v], i * 2);
+      sets.uvBack.set([1 - u, v], i * 2);
+      sets.uvLeft.set([1 - w, v], i * 2);
+      sets.uvRight.set([w, v], i * 2);
     }
-    g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    for (const [name, data] of Object.entries(sets)) g.setAttribute(name, new THREE.BufferAttribute(data, 2));
   }
   return geometries;
 }

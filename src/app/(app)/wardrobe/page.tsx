@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { BUCKET } from "@/lib/data";
+import { BUCKET, itemPaths } from "@/lib/data";
 import { addSampleWardrobe } from "@/lib/samples";
 import { CATEGORIES, allTags, type Category, type ItemWithUrl } from "@/lib/types";
 import { TagEditor, TagFilter } from "@/components/Tags";
@@ -48,7 +48,7 @@ export default function WardrobePage() {
     const supabase = createClient();
     const { error } = await supabase.from("items").delete().eq("id", item.id);
     if (error) return alert(error.message);
-    await supabase.storage.from(BUCKET).remove([item.image_path]);
+    await supabase.storage.from(BUCKET).remove(itemPaths(item));
     setItems((all) => all?.filter((i) => i.id !== item.id) ?? null);
     setSelected(null);
   }
