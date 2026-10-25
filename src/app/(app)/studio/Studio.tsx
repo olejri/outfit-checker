@@ -25,12 +25,19 @@ import { useItems } from "@/components/useItems";
 import { ItemPhoto } from "@/components/ItemPhoto";
 import { FolderPicker, useFolders } from "@/components/Folders";
 import { setOutfitFolders } from "@/lib/outfits";
+import { useLeaveWarning } from "@/components/useLeaveWarning";
+
+/** Everything that is saved with an outfit, as one comparable string. */
+function snapshot(name: string, avatar: Required<AvatarSettings>, itemIds: string[], folderIds: string[]) {
+  return JSON.stringify([name.trim(), avatar, [...itemIds].sort(), [...folderIds].sort()]);
+}
 
 export function Studio() {
   const router = useRouter();
   const params = useSearchParams();
   const outfitId = params.get("outfit");
   const wearId = params.get("wear");
+  const fresh = params.get("new");
   const { items } = useItems();
   const { folders, create: createFolder } = useFolders();
   const [folderIds, setFolderIds] = useState<string[]>([]);
@@ -47,6 +54,31 @@ export function Studio() {
   const [tag, setTag] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // What the outfit looked like when it was opened or last saved, to tell if it has changed.
+  const [baseline, setBaseline] = useState(() => snapshot("", DEFAULT_AVATAR, [], []));
+
+  // The page keeps its state when you navigate away and back, so a different outfit
+  // in the URL, or a new one, has to clear what was there.
+  const routeKey = outfitId ?? `new:${wearId ?? ""}:${fresh ?? ""}`;
+  const [shownKey, setShownKey] = useState(routeKey);
+  if (shownKey !== routeKey) {
+    setShownKey(routeKey);
+    if (!outfitId) {
+      setWorn({});
+      setAvatar(DEFAULT_AVATAR);
+      setHairGroup("short");
+      setName("");
+      setFolderIds([]);
+      setSavedFolderIds([]);
+      setUnloaded([]);
+      setNotice(null);
+      setBaseline(snapshot("", DEFAULT_AVATAR, [], []));
+    }
+  }
+  // "+ New outfit" links to ?new=1 so it always starts over; tidy the URL afterwards.
+  useEffect(() => {
+    if (fresh) router.replace("/studio", { scroll: false });
+  }, [fresh, router]);
 
   // Once items are loaded, dress the model from the URL (?outfit=… or ?wear=…).
   useEffect(() => {
@@ -61,7 +93,8 @@ export function Studio() {
           .single();
         if (cancelled || !data) return;
         const ids = new Set((data.outfit_items as { item_id: string }[]).map((o) => o.item_id));
-        setWorn(items.filter((i) => ids.has(i.id)).reduce(wear, {} as Worn));
+        const loaded = items.filter((i) => ids.has(i.id)).reduce(wear, {} as Worn);
+        setWorn(loaded);
         setUnloaded([...ids].filter((id) => !items.some((i) => i.id === id)));
         const inFolders = (data.outfit_folder_items as { folder_id: string }[]).map((f) => f.folder_id);
         setFolderIds(inFolders);
@@ -69,6 +102,7 @@ export function Studio() {
         setName(data.name);
         const saved = avatarWithDefaults(data.avatar);
         setAvatar(saved);
+        setBaseline(snapshot(data.name, saved, Object.values(loaded).map((i) => i!.id), inFolders));
         setHairGroup(HAIR_STYLES.find((h) => h.id === saved.hair)?.group ?? "short");
       } else if (wearId) {
         const item = items.find((i) => i.id === wearId);
@@ -89,15 +123,27 @@ export function Studio() {
     [items, tab, tag],
   );
   const wornList = Object.values(worn);
+  const current = snapshot(name, avatar, wornList.map((i) => i!.id), folderIds);
+  const dirty = current !== baseline;
+  const savedName = (JSON.parse(baseline) as [string])[0];
+  useLeaveWarning(dirty);
 
-  async function save() {
+  function startNew() {
+    if (dirty && !confirm("Start a new outfit? Your unsaved changes will be lost.")) return;
+    router.push("/studio?new=1");
+  }
+
+  async function save(asNew = false) {
     if (wornList.length === 0) return;
     setSaving(true);
     setNotice(null);
     const supabase = createClient();
+    const isNew = asNew || !outfitId;
     try {
-      const row = { name: name.trim() || "Untitled outfit", avatar, updated_at: new Date().toISOString() };
-      let id = outfitId;
+      let outfitName = name.trim() || "Untitled outfit";
+      if (asNew && outfitName === savedName) outfitName += " (copy)";
+      const row = { name: outfitName, avatar, updated_at: new Date().toISOString() };
+      let id = isNew ? null : outfitId;
       if (id) {
         const { error } = await supabase.from("outfits").update(row).eq("id", id);
         if (error) throw error;
@@ -118,10 +164,12 @@ export function Studio() {
         .eq("outfit_id", id)
         .not("item_id", "in", `(${keep.join(",")})`);
       if (del.error) throw del.error;
-      await setOutfitFolders(supabase, id!, outfitId ? savedFolderIds : [], folderIds);
+      await setOutfitFolders(supabase, id!, isNew ? [] : savedFolderIds, folderIds);
       setSavedFolderIds(folderIds);
-      setNotice("Saved.");
-      if (!outfitId) router.replace(`/studio?outfit=${id}`);
+      setName(outfitName);
+      setBaseline(snapshot(outfitName, avatar, wornList.map((i) => i!.id), folderIds));
+      setNotice(asNew ? `Saved as a new outfit, "${outfitName}".` : "Saved.");
+      if (isNew) router.replace(`/studio?outfit=${id}`, { scroll: false });
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Saving failed.");
     } finally {
@@ -131,6 +179,28 @@ export function Studio() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-3 text-sm">
+        <p className="mr-auto min-w-0 truncate">
+          {outfitId ? (
+            <>
+              <span className="text-muted">Editing </span>
+              <span className="font-semibold">{savedName || "outfit"}</span>
+            </>
+          ) : (
+            <span className="font-semibold">New outfit</span>
+          )}
+        </p>
+        {dirty ? (
+          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-semibold text-accent">● Unsaved changes</span>
+        ) : (
+          outfitId && <span className="shrink-0 text-xs text-muted">✓ Saved</span>
+        )}
+        {(outfitId || dirty) && (
+          <button onClick={startNew} className="shrink-0 font-semibold text-accent">
+            + New
+          </button>
+        )}
+      </div>
       <div className="relative -mx-4 h-[52dvh] min-h-80 overflow-hidden bg-canvas sm:mx-0 sm:rounded-3xl">
         <AvatarView worn={worn} avatar={avatar} />
         <div className="absolute left-3 top-3 flex gap-1.5 rounded-full bg-white/80 p-1.5 backdrop-blur">
@@ -270,10 +340,15 @@ export function Studio() {
 
       <div className="flex gap-2">
         <input className="input" placeholder="Outfit name" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="btn-primary shrink-0" disabled={saving || wornList.length === 0} onClick={save}>
+        <button className="btn-primary shrink-0" disabled={saving || wornList.length === 0 || (!!outfitId && !dirty)} onClick={() => save()}>
           {saving ? "Saving…" : outfitId ? "Update" : "Save"}
         </button>
       </div>
+      {outfitId && (
+        <button className="btn-ghost w-full py-2" disabled={saving || wornList.length === 0} onClick={() => save(true)}>
+          Save as a new outfit
+        </button>
+      )}
       {folders && (
         <div className="space-y-1.5">
           <p className="text-xs text-muted">Save in folders (optional)</p>
@@ -285,9 +360,9 @@ export function Studio() {
           {unloaded.length === 1 ? "1 item" : `${unloaded.length} items`} in this outfit couldn&apos;t be loaded. It stays in the outfit when you save.
         </p>
       )}
-      {notice && (
+      {notice && !(dirty && notice.startsWith("Saved")) && (
         <p className="text-sm text-muted">
-          {notice} {notice === "Saved." && <Link href="/outfits" className="font-semibold text-accent">See your outfits</Link>}
+          {notice} {notice.startsWith("Saved") && <Link href="/outfits" className="font-semibold text-accent">See your outfits</Link>}
         </p>
       )}
     </div>

@@ -184,7 +184,7 @@ export function OutfitList() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Outfits</h1>
-        <Link href="/studio" className="btn-primary py-2.5">
+        <Link href="/studio?new=1" className="btn-primary py-2.5">
           + New outfit
         </Link>
       </div>
@@ -230,7 +230,7 @@ export function OutfitList() {
         !loadError && (
           <div className="rounded-2xl border border-dashed border-line bg-white p-8 text-center text-muted">
             <p className="mb-4">No saved outfits yet.</p>
-            <Link href="/studio" className="btn-primary">
+            <Link href="/studio?new=1" className="btn-primary">
               Put one together
             </Link>
           </div>
