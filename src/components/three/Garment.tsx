@@ -39,15 +39,22 @@ const CUTS: Record<LegCut, { knee: number; hem: number; crotch: number }> = {
   straight: { knee: 0.08, hem: 0.075, crotch: 0.78 },
   flared: { knee: 0.074, hem: 0.118, crotch: 0.78 },
   wide: { knee: 0.1, hem: 0.125, crotch: 0.77 },
-  baggy: { knee: 0.115, hem: 0.112, crotch: 0.71 },
+  baggy: { knee: 0.115, hem: 0.112, crotch: 0.72 },
 };
 
+const WAIST = 1.04;
+/** Below this the hips start turning into legs. */
+const HIP = 0.87;
+
+/** Half width of the trousers' hip section (an ellipse, BODY.depth as deep as wide). */
+const hipHalfWidth = (y: number, k: number) => lerp(0.165, 0.172, smooth(Math.min(1, Math.max(0, (WAIST - y) / 0.14)))) * k;
+
 /**
- * Outline of a trouser leg at height `y`: how far its centre is from the middle of the
- * body and its radius. Near the top both legs overlap into one piece (the seat and
- * crotch), below the crotch they part, and from the knee down they follow the cut,
- * made tighter or looser by `loose` (0.5 is the cut as is). Wide legs move outwards
- * so they stay apart.
+ * Outline of a trouser leg at height `y`: its centre's distance from the middle of the
+ * body and its radius. Above the crotch the leg's inner edge stays on the middle line,
+ * so the two legs meet without a gap or overlap; below it they part, and from the
+ * knee down they follow the cut, made tighter or looser by `loose` (0.5 is the cut as
+ * is). Wide legs move outwards so they stay apart.
  */
 function legOutline(y: number, cut: LegCut, loose: number, k: number) {
   const shape = CUTS[cut];
@@ -55,62 +62,70 @@ function legOutline(y: number, cut: LegCut, loose: number, k: number) {
   const fit = (r: number) => Math.max(0.068, r * around1(loose, 0.9, 1.3));
   const knee = fit(shape.knee);
   const hem = fit(shape.hem);
-  const crotch = shape.crotch;
-  const keys = [
-    { y: 0.88, r: 0.086 * k + 0.006, cx: 0.086 * k },
-    { y: crotch, r: Math.max(BODY.legX + 0.002, knee), cx: BODY.legX },
-    { y: 0.5, r: knee },
-    { y: 0.02, r: hem },
-  ];
-  let r = keys[0].r;
-  let cx = keys[0].cx!;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const a = keys[i];
-    const b = keys[i + 1];
-    if (y <= a.y && y >= b.y) {
-      const t = smooth((a.y - y) / (a.y - b.y));
-      r = lerp(a.r, b.r, t);
-      cx = a.cx !== undefined && b.cx !== undefined ? lerp(a.cx, b.cx, t) : BODY.legX;
-    }
+  const atCrotch = Math.max(BODY.legX, Math.min(knee, 0.1));
+  if (y >= shape.crotch) {
+    const t = smooth(Math.min(1, (HIP - Math.min(y, HIP)) / (HIP - shape.crotch)));
+    const r = lerp(hipHalfWidth(HIP, k) / 2, atCrotch, t);
+    return { r, cx: r };
   }
-  if (y < keys[keys.length - 1].y) r = hem;
-  // Below the crotch, wide legs ease outwards so they don't run into each other.
-  if (y < crotch) cx = BODY.legX + Math.max(0, r + 0.006 - BODY.legX) * smooth(Math.min(1, (crotch - y) / 0.1));
+  const r =
+    y >= 0.5
+      ? lerp(atCrotch, knee, smooth((shape.crotch - y) / (shape.crotch - 0.5)))
+      : lerp(knee, hem, smooth(Math.min(1, (0.5 - y) / 0.48)));
+  // Ease the legs apart below the crotch, further for wide legs.
+  const apart = smooth(Math.min(1, (shape.crotch - y) / 0.12));
+  const cx = lerp(atCrotch, Math.max(BODY.legX, r + 0.006), apart);
   return { r, cx };
 }
 
-/** Both trouser legs from the hips down to `bottom`, following legOutline. */
-function trouserLegs(bottom: number, cut: LegCut, loose: number, k: number) {
-  const top = 0.88;
-  const rows = 48;
-  const cols = 32;
+/**
+ * The trousers as one surface per leg, from the waist to `bottom`. At the hips each
+ * leg is half of the hip ellipse (the two halves meet on the middle line), and it
+ * morphs into a round leg by the crotch, so there are no separate parts or seams.
+ */
+function trousers(bottom: number, cut: LegCut, loose: number, k: number) {
+  const rows = 90;
+  const cols = 48;
+  const crotch = CUTS[cut].crotch;
   return ([1, -1] as const).map((side) => {
-    const g = new THREE.CylinderGeometry(1, 1, top - bottom, cols, rows, true);
-    const p = g.attributes.position;
-    const n = g.attributes.normal;
-    const h = 0.002;
-    for (let i = 0; i < p.count; i++) {
-      const y = p.getY(i) + (top + bottom) / 2;
-      const c = p.getX(i);
-      const s = p.getZ(i);
+    const positions: number[] = [];
+    const index: number[] = [];
+    for (let i = 0; i <= rows; i++) {
+      const y = lerp(WAIST, bottom, i / rows);
+      const hx = hipHalfWidth(y, k);
+      const hz = hx * BODY.depth;
+      const t = smooth(Math.min(1, Math.max(0, (HIP - y) / (HIP - crotch))));
       const { r, cx } = legOutline(y, cut, loose, k);
-      p.setXYZ(i, side * (cx + r * c), y, r * s);
-      // Surface normal from the slope of the outline (pointing outwards).
-      const up = legOutline(y + h, cut, loose, k);
-      const down = legOutline(y - h, cut, loose, k);
-      const dr = (up.r - down.r) / (2 * h);
-      const dcx = (up.cx - down.cx) / (2 * h);
-      const v = new THREE.Vector3(side * c, -(dr + c * dcx), s).normalize();
-      n.setXYZ(i, v.x, v.y, v.z);
+      for (let j = 0; j <= cols; j++) {
+        // θ = 0 faces outwards, ±π is the middle line (front and back).
+        const a = -Math.PI + (2 * Math.PI * j) / cols;
+        const hipX = hx * Math.cos(a / 2);
+        const hipZ = -hz * Math.sin(a / 2);
+        const legX = cx + r * Math.cos(a);
+        const legZ = -r * Math.sin(a);
+        positions.push(side * lerp(hipX, legX, t), y, lerp(hipZ, legZ, t));
+      }
     }
+    for (let i = 0; i < rows; i++) {
+      for (let j = 0; j < cols; j++) {
+        const p = i * (cols + 1) + j;
+        const q = p + cols + 1;
+        if (side === 1) index.push(p, q, p + 1, p + 1, q, q + 1);
+        else index.push(p, p + 1, q, p + 1, q + 1, q);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    g.setIndex(index);
+    g.computeVertexNormals();
     return g;
   });
 }
 
 /** Widest point of the trousers from the middle, so the photo covers both legs. */
 function trouserHalfWidth(bottom: number, cut: LegCut, loose: number, k: number) {
-  let widest = 0.172 * k;
-  for (let y = bottom; y <= 0.88; y += 0.02) {
+  let widest = hipHalfWidth(HIP, k);
+  for (let y = bottom; y <= CUTS[cut].crotch; y += 0.02) {
     const { r, cx } = legOutline(y, cut, loose, k);
     widest = Math.max(widest, cx + r);
   }
@@ -165,12 +180,12 @@ const TEMPLATES: Record<Category, Template> = {
   bottoms: {
     parts: (s) => {
       const k = looseness(s);
-      return [torsoShell(1.04, 0.86, 0.165 * k, 0.172 * k), ...trouserLegs(lerp(0.66, 0.02, s.length), s.cut, s.looseness, k)];
+      return trousers(lerp(0.66, 0.02, s.length), s.cut, s.looseness, k);
     },
     box: (s) => {
       const bottom = lerp(0.66, 0.02, s.length);
       const half = Math.max(0.18 * looseness(s), trouserHalfWidth(bottom, s.cut, s.looseness, looseness(s)));
-      return { x: [-half, half], y: [bottom, 1.04] };
+      return { x: [-half, half], y: [bottom, WAIST] };
     },
   },
   shoes: {
